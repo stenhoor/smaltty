@@ -3,8 +3,23 @@
 smaltty is a TypeScript kit with no outside code: a parser, a type stripper, scope analysis and, later, a type checker
 for TypeScript written against smaltdf. It replaces sucrase in smaltui and the TypeScript compiler in smaltnb. smaltkit
 wraps it for the apps. Read [docs/DESIGN.md](docs/DESIGN.md) first: it holds the owner's decisions and their order.
-There is no code yet. Several Claude Code sessions work on the smalt repos in parallel and cannot see each other: this
+Milestone 1 (scaffold and baseline) is done. Several Claude Code sessions work on the smalt repos in parallel and cannot see each other: this
 file is the shared starting point, and its working rules match smaltdb's `CLAUDE.md`.
+
+## Commands
+
+```bash
+npm install            # prepare builds dist/ (tsc -p tsconfig.build.json)
+npm run typecheck      # tsc --noEmit, strict and erasableSyntaxOnly, over src/, test/ and bench/
+npm test               # build, then node --test test/*.test.ts (the corpus checks among them)
+npm run bench          # the benchmark tables in docs/BENCHMARKS.md; --quick checks the harness only
+```
+
+## Repo map
+
+- `src/` the kit (nothing yet but `VERSION`). `test/` imports the package by name, so it tests the built output.
+- `corpus/` the input for tests and benchmarks ([corpus/README.md](corpus/README.md)). `bench/` the harness.
+- `docs/` [DESIGN.md](docs/DESIGN.md), [MILESTONES.md](docs/MILESTONES.md), [BENCHMARKS.md](docs/BENCHMARKS.md).
 
 ## Rules for code here
 

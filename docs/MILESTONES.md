@@ -8,6 +8,8 @@ only after gate B.
 
 ## 1. Scaffold and baseline
 
+Status: done, 2026-11-08 ([BENCHMARKS.md](BENCHMARKS.md)).
+
 - Package, strict `tsconfig`, CI (typecheck and tests), the benchmark harness. sucrase and typescript as dev dependencies,
   for tests and benchmarks only.
 - A corpus: smaltnb's example notebooks, smaltui's demo tabs, a large generated script, and syntax edge cases.

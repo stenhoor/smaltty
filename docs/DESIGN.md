@@ -59,7 +59,8 @@ Astral's ty (a Python type checker) is the model to follow. We're taking its des
 - **The gradual guarantee:** code without annotations isn't flagged, and anything the checker doesn't model is unknown
   and quiet. This lets checking start small with no false errors.
 - **One parser** for the stripper, smaltnb's analysis and the checker.
-- **Prepared types:** in tsc, reading `lib.d.ts` costs about 100 ms on every cold check, whatever the input size.
+- **Prepared types:** in tsc, reading, parsing and binding `lib.d.ts` is most of a cold check: app code takes 32–40 ms
+  cold and 1–4 ms once the lib files are kept ([BENCHMARKS.md](BENCHMARKS.md)).
   smaltty's built-in types are compiled into a table at build time and load at once. smaltdf's `.d.ts` is small and is
   read in the page for now.
 
@@ -96,16 +97,24 @@ an object per node. The checker needs the binder anyway, so this work is pulled 
 
 ## Speed targets
 
-Measured against the tool it replaces, doing the same work, in Node and in a browser worker:
+Measured against the tool it replaces, doing the same work, in Node and in a browser worker. Baselines are from
+milestone 1's harness ([BENCHMARKS.md](BENCHMARKS.md)), median times after warm-up:
 
-| Measure | Baseline (Node, 2026-11-08) | Target |
+| Measure | Baseline | Target |
 | --- | --- | --- |
-| Strip a 945 B notebook | sucrase 0.15 ms; `transpileModule` 2.3 ms | ≤ sucrase |
-| Strip a 42 KB script | sucrase 1.35 ms; `transpileModule` 10.6 ms | ≤ sucrase |
-| Parse and bind a notebook | TypeScript compiler (to be measured) | well under the compiler |
-| Size | sucrase 48 KB gzipped; compiler 8.7 MB | under 48 KB gzipped for phase 0 |
-| Check, cold (phase 1) | tsc strict with `lib.es2022`: ~100 ms | < 10 ms |
-| Re-check after an edit (phase 1) | n/a | 1–2 ms, fast enough to check as you type |
+| Strip a 945 B notebook | sucrase 0.028 ms; `transpileModule` 0.93 ms | ≤ sucrase |
+| Strip a 40 KB script | sucrase 2.4 ms; `transpileModule` 20 ms | ≤ sucrase |
+| Parse and resolve names, 945 B notebook | compiler 0.69 ms | ≤ the compiler |
+| Parse and resolve names, 167 KB of library code | compiler 113 ms | ≤ the compiler |
+| First use, fresh process | sucrase 33 ms; compiler 162 ms | ≤ sucrase |
+| Size | sucrase ~48 KB gzipped; compiler 1.6 MB gzipped (8.9 MB) | under 48 KB gzipped for phase 0 |
+| Check, cold (phase 1) | tsc 32–40 ms for app code, 83 ms for 40 KB | < 10 ms, built-in types included |
+| Re-check after an edit (phase 1) | tsc, program reused: 1–4 ms for app code, 49 ms for 40 KB | ≤ tsc, and 1–2 ms for app code |
+
+What the baseline changes: warmed up, tsc re-checks a small tab in 1–4 ms when it reuses its previous program, as an
+editor does. For checking, smaltty's lead over tsc is in loading (8.9 MB and 162 ms before the first check) and in cold
+checks, not in re-checking small code. A smaltty checker that isn't faster than that has only the dependency to
+recommend it.
 
 ## Correctness
 
