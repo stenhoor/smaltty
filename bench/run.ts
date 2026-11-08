@@ -10,7 +10,7 @@ import { arch, cpus, platform } from 'node:os';
 import { gzipSync } from 'node:zlib';
 import ts from 'typescript';
 import { transform } from 'sucrase';
-import { parse, strip } from 'smaltty';
+import { bind, parse, strip } from 'smaltty';
 import { corpusFiles, generatedFiles, type CorpusFile, type Group } from './corpus.ts';
 
 const quick = process.argv.includes('--quick');
@@ -129,8 +129,8 @@ line('### Stripping and name analysis');
 line();
 line('Median milliseconds to process the whole group once, on the files every tool accepts: sucrase rejects one edge case, smaltty refuses the non-erasable files (three of smaltdf\'s, and the non-erasable edge cases).');
 line();
-line('| Corpus | Files | Size (KB) | sucrase strip | `transpileModule` | smaltty strip | TypeScript parse | smaltty parse | Parse + resolve names (smaltnb) |');
-line('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
+line('| Corpus | Files | Size (KB) | sucrase strip | `transpileModule` | smaltty strip | TypeScript parse | smaltty parse | Parse + resolve names (smaltnb) | smaltty parse + bind |');
+line('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
 for (const g of groups) {
   // The files every tool accepts: sucrase rejects one edge case, smaltty refuses the non-erasable ones.
   const files = g.files.filter((f) => f.sucrase && f.erasable);
@@ -141,7 +141,8 @@ for (const g of groups) {
   const tsParsed = time(() => { for (const f of files) tsParse(f.name, f.text); });
   const parsed = time(() => { for (const f of files) parse(f.text); });
   const names = time(() => { for (const f of files) tsResolveNames(f.name, f.text); });
-  line(`| ${g.label} | ${files.length} | ${kb(bytes)} | ${fmt(sucrased)} | ${fmt(transpile)} | **${fmt(stripped)}** | ${fmt(tsParsed)} | **${fmt(parsed)}** | ${fmt(names)} |`);
+  const bound = time(() => { for (const f of files) bind(parse(f.text)); });
+  line(`| ${g.label} | ${files.length} | ${kb(bytes)} | ${fmt(sucrased)} | ${fmt(transpile)} | **${fmt(stripped)}** | ${fmt(tsParsed)} | **${fmt(parsed)}** | ${fmt(names)} | **${fmt(bound)}** |`);
 }
 line();
 
@@ -149,10 +150,10 @@ line();
 
 line('### App code, per file');
 line();
-line('| File | Size (bytes) | sucrase strip | `transpileModule` | smaltty strip | smaltty parse | Parse + resolve names |');
-line('| --- | ---: | ---: | ---: | ---: | ---: | ---: |');
+line('| File | Size (bytes) | sucrase strip | `transpileModule` | smaltty strip | smaltty parse | Parse + resolve names | smaltty parse + bind |');
+line('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
 for (const f of groups[0]!.files) {
-  line(`| \`${f.name}\` | ${f.text.length} | ${fmt(time(() => sucraseStrip(f.text), 500))} | ${fmt(time(() => tsTranspile(f.text), 500))} | **${fmt(time(() => strip(f.text), 500))}** | **${fmt(time(() => parse(f.text), 500))}** | ${fmt(time(() => tsResolveNames(f.name, f.text), 500))} |`);
+  line(`| \`${f.name}\` | ${f.text.length} | ${fmt(time(() => sucraseStrip(f.text), 500))} | ${fmt(time(() => tsTranspile(f.text), 500))} | **${fmt(time(() => strip(f.text), 500))}** | **${fmt(time(() => parse(f.text), 500))}** | ${fmt(time(() => tsResolveNames(f.name, f.text), 500))} | **${fmt(time(() => bind(parse(f.text)), 500))}** |`);
 }
 
 line();

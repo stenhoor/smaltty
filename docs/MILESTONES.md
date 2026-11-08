@@ -42,11 +42,16 @@ tree, as designed.
 
 ## 4. smaltui moves over
 
+Status: done, 2026-11-08: stenhoor/smaltkit#12 (`smaltkit/typescript`) and stenhoor/smaltui#33. The sucrase plugin is
+retired (stenhoor/smaltdb-sucrase#2).
+
 - A thin smaltty wrapper module in smaltkit. smaltui uses it instead of `vendor/smaltdb-sucrase/`.
 - **Done when:** smaltui's tests and e2e pass, and the `@smaltworks/smaltdb-sucrase` pin is removed.
 - PRs in smaltkit and smaltui, linked with `Depends on:`.
 
 ## 5. Binder
+
+Status: done, 2026-11-08 ([BENCHMARKS.md](BENCHMARKS.md), "What milestone 5 says").
 
 - Scope analysis: module, function, block, class, catch and loop scopes; hoisting; value and type names; destructuring;
   shorthand properties; `typeof` in types.

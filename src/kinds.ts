@@ -223,7 +223,8 @@ export const F = {
   Asserts: 1 << 25, // asserts on a TypePredicate
   Namespace: 1 << 26, // ModuleDeclaration written with `namespace`, not `module` or `global`
   Global: 1 << 27, // declare global
-  HasTrailingComma: 1 << 28,
+  /** A BindingElement with a property name: `{ a: b }`, whose first child is the property and second the name. */
+  PropertyName: 1 << 28,
   /** `+` or `-` on a mapped type's readonly (ReadonlyPlus/Minus) and ? (QuestionPlus/Minus). */
   MappedReadonly: 1 << 29,
   MappedQuestion: 1 << 30,

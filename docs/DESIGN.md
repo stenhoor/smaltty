@@ -105,6 +105,19 @@ The owner's rule (2026-11-08): **follow TypeScript, not sucrase.** Where the two
 what is refused as non-erasable), smaltty does what TypeScript does, and TypeScript is the reference in the tests. The
 apps' guides say so when they move over (milestones 4 and 6).
 
+### The binder
+
+`bind(tree)` follows TypeScript's binder and name resolution on one file: scopes where TypeScript has containers
+(functions, blocks, `for`, `catch`, classes, namespaces, type parameters, mapped and conditional types), `var` and
+non-strict functions hoisted to their function, the body of a function sharing its scope, a name's separate meanings
+(value, type, namespace), merged declarations (interfaces and classes sharing type parameters, namespace blocks sharing
+exports), `infer` names in a conditional's true branch, and `declare global`. Imports answer to every meaning, since
+their targets are outside the file. Property names are not bound: what they mean depends on types.
+
+It answers, for each identifier, the first declaration of the symbol it declares or refers to, and the meaning it was
+looked up with. The tests compare that answer with TypeScript's checker (one file, no lib, no module resolution, the way
+smaltnb used it) for every name.
+
 ### What the binder adds (smaltnb)
 
 smaltnb's `format.ts` (446 lines) uses the compiler for: parsing; `getSymbolAtLocation` and
