@@ -15,6 +15,16 @@ smaltdf, smaltql and smaltdb don't compile or strip TypeScript at run time. They
 and ship JavaScript with `.d.ts` files. (smaltdb generates JavaScript of its own with `new Function` to run expressions;
 that is not TypeScript.) So types are checked while smaltdf is built, and dropped just before user code runs.
 
+## What smaltty is, and isn't
+
+smaltty is a kit with its own brand so that it has room to grow. smaltworks isn't in the business of writing TypeScript
+compilers. smaltty exists because it removes dependencies from the apps and may make them faster. If it ever becomes a
+full replacement for TypeScript on the strength of its speed, it can grow into a product of its own. That is a possible
+outcome, not a goal.
+
+Use this test for any piece of work: does it remove outside code from the smalt apps, or make them faster? If not, it is
+a distraction and waits.
+
 ## Goals, in order
 
 1. **Remove the outside code.** One parser of our own replaces sucrase in smaltui and the TypeScript compiler in
@@ -111,4 +121,12 @@ Measured against the tool it replaces, doing the same work, in Node and in a bro
 ## Open questions
 
 - The package name on npm, and smalt-brand's entry for smaltty.
-- The format of the prepared type table, and whether smaltdf ships it or smaltty builds it from smaltdf's `.d.ts`.
+- Where smaltdf's prepared type table comes from (phase 1; nothing in phase 0 depends on it). Options, with the
+  proposal's recommendation first:
+  1. **smaltty builds it from smaltdf's `.d.ts` when the app is built** (in smaltkit's vendor step, from the installed
+     package). smaltdf doesn't change, the table always matches the installed smaltdf, and the format stays smaltty's to
+     change. smaltty has to read the `.d.ts` syntax tsc emits for smaltdf, but the parser reads types anyway.
+  2. **smaltty reads smaltdf's `.d.ts` in the page, when checking starts.** No build step. This costs a parse on every
+     load: small for smaltdf, but it is the cost the prepared tables exist to avoid.
+  3. **smaltdf ships the table.** Always matches its version, but a core library takes a dev dependency on a kit still
+     being proven, and every change to the format means a smaltdf release.
