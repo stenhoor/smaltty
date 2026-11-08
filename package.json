@@ -29,7 +29,7 @@
     "prepare": "npm run build",
     "typecheck": "tsc -p .",
     "test": "npm run build && node --test test/*.test.ts",
-    "bench": "node bench/baseline.ts"
+    "bench": "npm run build && node bench/run.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

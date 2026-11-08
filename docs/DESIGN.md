@@ -75,6 +75,15 @@ The order of work, with its gates, is in [MILESTONES.md](MILESTONES.md).
 | 0 | Binder (scope analysis): scopes, declarations, references, value and type names | smaltnb's `noLib` checker | 800–1,200 lines |
 | 1+ | Checker over the binder, against smaltdf's declarations and the built-in types | nothing today | grows with the data |
 
+### The tree
+
+The parser builds TypeScript's own tree: the same node kinds (by name), the same children in the same order, and the same
+start and end for every node, so the tests compare the two node for node, and smaltnb's code that walks TypeScript's
+tree ports over by kind. It is stored flat: a row per node in typed arrays (kind, start, end, first child, next sibling,
+flags, operator), all in one buffer, built without an object per node. Modifiers and small facts (`?`, `!`, `...`,
+`export`, `type`-only) are flags, not nodes. The parser stops at the first syntax error, with its line and column; there
+is no recovery.
+
 ### What the binder adds (smaltnb)
 
 smaltnb's `format.ts` (446 lines) uses the compiler for: parsing; `getSymbolAtLocation` and
@@ -104,6 +113,8 @@ milestone 1's harness ([BENCHMARKS.md](BENCHMARKS.md)), median times after warm-
 | --- | --- | --- |
 | Strip a 945 B notebook | sucrase 0.028 ms; `transpileModule` 0.93 ms | ≤ sucrase |
 | Strip a 40 KB script | sucrase 2.4 ms; `transpileModule` 20 ms | ≤ sucrase |
+| Parse a 945 B notebook | TypeScript 0.04 ms (parse only) | smaltty 0.017 ms (milestone 2) |
+| Parse 167 KB of library code | TypeScript 18 ms; sucrase strips it in 11 ms | smaltty 4.1 ms (milestone 2) |
 | Parse and resolve names, 945 B notebook | compiler 0.69 ms | ≤ the compiler |
 | Parse and resolve names, 167 KB of library code | compiler 113 ms | ≤ the compiler |
 | First use, fresh process | sucrase 33 ms; compiler 162 ms | ≤ sucrase |

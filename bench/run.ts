@@ -1,15 +1,16 @@
-// Baseline: what the tools smaltty replaces cost on the corpus, doing the same work smaltty will do. Prints Markdown
-// tables for docs/BENCHMARKS.md. `--quick` runs each measure once (CI checks the harness runs; it doesn't time it).
+// The benchmarks: smaltty against the tools it replaces, doing the same work, on the corpus. Prints Markdown tables
+// for docs/BENCHMARKS.md. `--quick` runs each measure once (CI checks the harness runs; it doesn't time it).
 //
-//   node bench/baseline.ts            full run (a few minutes)
-//   node bench/baseline.ts --quick    one iteration each
+//   node bench/run.ts            full run (a few minutes)
+//   node bench/run.ts --quick    one iteration each
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { arch, cpus, platform } from 'node:os';
 import { gzipSync } from 'node:zlib';
 import ts from 'typescript';
 import { transform } from 'sucrase';
+import { parse } from 'smaltty';
 import { corpusFiles, generatedFiles, type CorpusFile, type Group } from './corpus.ts';
 
 const quick = process.argv.includes('--quick');
@@ -126,18 +127,19 @@ line();
 
 line('### Stripping and name analysis');
 line();
-line('Median milliseconds to process the whole group once. Stripping covers the files sucrase accepts.');
+line('Median milliseconds to process the whole group once, on the files sucrase accepts (all but one edge case).');
 line();
-line('| Corpus | Files | Size (KB) | sucrase strip | `transpileModule` | Parse (`createSourceFile`) | Parse + resolve names (smaltnb) |');
-line('| --- | ---: | ---: | ---: | ---: | ---: | ---: |');
+line('| Corpus | Files | Size (KB) | sucrase strip | `transpileModule` | TypeScript parse | smaltty parse | Parse + resolve names (smaltnb) |');
+line('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
 for (const g of groups) {
-  const strippable = g.files.filter((f) => f.sucrase);
-  const bytes = g.files.reduce((n, f) => n + f.text.length, 0);
-  const strip = time(() => { for (const f of strippable) sucraseStrip(f.text); });
-  const transpile = time(() => { for (const f of strippable) tsTranspile(f.text); });
-  const parse = time(() => { for (const f of g.files) tsParse(f.name, f.text); });
-  const names = time(() => { for (const f of g.files) tsResolveNames(f.name, f.text); });
-  line(`| ${g.label} | ${g.files.length} | ${kb(bytes)} | ${fmt(strip)} | ${fmt(transpile)} | ${fmt(parse)} | ${fmt(names)} |`);
+  const files = g.files.filter((f) => f.sucrase);
+  const bytes = files.reduce((n, f) => n + f.text.length, 0);
+  const strip = time(() => { for (const f of files) sucraseStrip(f.text); });
+  const transpile = time(() => { for (const f of files) tsTranspile(f.text); });
+  const tsParsed = time(() => { for (const f of files) tsParse(f.name, f.text); });
+  const parsed = time(() => { for (const f of files) parse(f.text); });
+  const names = time(() => { for (const f of files) tsResolveNames(f.name, f.text); });
+  line(`| ${g.label} | ${files.length} | ${kb(bytes)} | ${fmt(strip)} | ${fmt(transpile)} | ${fmt(tsParsed)} | **${fmt(parsed)}** | ${fmt(names)} |`);
 }
 line();
 
@@ -145,11 +147,12 @@ line();
 
 line('### App code, per file');
 line();
-line('| File | Size (bytes) | sucrase strip | `transpileModule` | Parse + resolve names |');
-line('| --- | ---: | ---: | ---: | ---: |');
+line('| File | Size (bytes) | sucrase strip | `transpileModule` | smaltty parse | Parse + resolve names |');
+line('| --- | ---: | ---: | ---: | ---: | ---: |');
 for (const f of groups[0]!.files) {
-  line(`| \`${f.name}\` | ${f.text.length} | ${fmt(time(() => sucraseStrip(f.text), 500))} | ${fmt(time(() => tsTranspile(f.text), 500))} | ${fmt(time(() => tsResolveNames(f.name, f.text), 500))} |`);
+  line(`| \`${f.name}\` | ${f.text.length} | ${fmt(time(() => sucraseStrip(f.text), 500))} | ${fmt(time(() => tsTranspile(f.text), 500))} | **${fmt(time(() => parse(f.text), 500))}** | ${fmt(time(() => tsResolveNames(f.name, f.text), 500))} |`);
 }
+
 line();
 
 // ---------------------------------------------------------------- full checks (phase 1 reference)
@@ -182,17 +185,22 @@ function fresh(code: string, runs = quick ? 1 : 7): number {
 
 const tsPath = require.resolve('typescript/lib/typescript.js');
 const tsText = readFileSync(tsPath);
+const distDir = new URL('../dist/', import.meta.url);
+const distFiles = readdirSync(distDir).filter((f) => f.endsWith('.js'));
+const distText = Buffer.concat(distFiles.map((f) => readFileSync(new URL(f, distDir))));
+const loadSmaltty = fresh(`const t = performance.now(); const { parse } = await import(${JSON.stringify(new URL('index.js', distDir).href)}); parse('let a: number = 1'); console.log(performance.now() - t);`);
 const loadSucrase = fresh(`const t = performance.now(); const { transform } = await import('sucrase'); transform('let a: number = 1', { transforms: ['typescript'] }); console.log(performance.now() - t);`);
-const loadTs = fresh(`import { readFileSync } from 'node:fs'; const text = readFileSync(${JSON.stringify(tsPath)}, 'utf8'); const t = performance.now(); const ts = new Function(text + '\\nreturn ts;')(); ts.transpileModule('let a: number = 1', {}); console.log(performance.now() - t);`);
+const loadTs = fresh(`import { readdirSync, readFileSync } from 'node:fs'; const text = readFileSync(${JSON.stringify(tsPath)}, 'utf8'); const t = performance.now(); const ts = new Function(text + '\\nreturn ts;')(); ts.transpileModule('let a: number = 1', {}); console.log(performance.now() - t);`);
 
 line('### Loading and size');
 line();
-line('Loading: a fresh process, from first use to the first stripped line (median of runs). smaltnb evaluates `lib/typescript.js` with `new Function`, as here.');
+line('Loading: a fresh process, from first use to the first stripped (or, for smaltty, parsed) line, median of runs. smaltnb evaluates `lib/typescript.js` with `new Function`, as here. smaltty: all of `dist/*.js`, unminified.');
 line();
 line('| Tool | Load (ms) | Size | Gzipped |');
 line('| --- | ---: | ---: | ---: |');
 line(`| sucrase (as \`@smaltworks/smaltdb-sucrase\` bundles it) | ${fmt(loadSucrase)} | ~200 KB | ~48 KB |`);
 line(`| TypeScript compiler (\`lib/typescript.js\`) | ${fmt(loadTs)} | ${kb(tsText.length)} KB | ${kb(gzipSync(tsText).length)} KB |`);
+line(`| smaltty (\`dist/*.js\`) | ${fmt(loadSmaltty)} | ${kb(distText.length)} KB | ${kb(gzipSync(distText).length)} KB |`);
 line();
 line("sucrase's bundled size is from smaltdb-sucrase's README (an esbuild bundle of sucrase and its dependencies); smaltty doesn't bundle sucrase to measure it.");
 

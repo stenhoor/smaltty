@@ -3,7 +3,7 @@
 smaltty is a TypeScript kit with no outside code: a parser, a type stripper, scope analysis and, later, a type checker
 for TypeScript written against smaltdf. It replaces sucrase in smaltui and the TypeScript compiler in smaltnb. smaltkit
 wraps it for the apps. Read [docs/DESIGN.md](docs/DESIGN.md) first: it holds the owner's decisions and their order.
-Milestone 1 (scaffold and baseline) is done. Several Claude Code sessions work on the smalt repos in parallel and cannot see each other: this
+Milestones 1 (scaffold and baseline) and 2 (scanner and parser) are done; see docs/MILESTONES.md for what's next. Several Claude Code sessions work on the smalt repos in parallel and cannot see each other: this
 file is the shared starting point, and its working rules match smaltdb's `CLAUDE.md`.
 
 ## Commands
@@ -17,7 +17,10 @@ npm run bench          # the benchmark tables in docs/BENCHMARKS.md; --quick che
 
 ## Repo map
 
-- `src/` the kit (nothing yet but `VERSION`). `test/` imports the package by name, so it tests the built output.
+- `src/`: `scanner.ts` (tokens on demand), `parser.ts` (TypeScript's grammar, TypeScript's tree shapes), `tree.ts` (the
+  flat tree), `kinds.ts` and `tokens.ts` (codes). `test/` imports the package by name, so it tests the built output.
+- `test/compare.ts` flattens both trees for comparison; `node test/sweep.ts <paths>` compares the parser with TypeScript
+  on any code (run it on the smalt repositories after a parser change).
 - `corpus/` the input for tests and benchmarks ([corpus/README.md](corpus/README.md)). `bench/` the harness.
 - `docs/` [DESIGN.md](docs/DESIGN.md), [MILESTONES.md](docs/MILESTONES.md), [BENCHMARKS.md](docs/BENCHMARKS.md).
 
@@ -27,6 +30,8 @@ npm run bench          # the benchmark tables in docs/BENCHMARKS.md; --quick che
 - No run-time dependencies. sucrase and typescript may be dev dependencies for differential tests and benchmarks only.
 - Speed comes first. Every change to the scanner, parser, stripper or binder is benchmarked against the tool it
   replaces, on the same work, and a slowdown is a regression.
+- The parser's tree must match TypeScript's node for node. A difference the tests or a sweep find is a bug in smaltty,
+  unless TypeScript reports a syntax error there too.
 - Erasable syntax only: `enum`, `namespace` with values and constructor parameter properties are reported, not
   transformed.
 - A checker error that tsc doesn't report is a bug. Anything the checker doesn't model is unknown and quiet.

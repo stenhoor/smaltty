@@ -18,6 +18,8 @@ Status: done, 2026-11-08 ([BENCHMARKS.md](BENCHMARKS.md)).
 
 ## 2. Scanner and parser (the trial)
 
+Status: done, 2026-11-08. Waiting on gate A ([BENCHMARKS.md](BENCHMARKS.md), "What milestone 2 says").
+
 - A scanner and a parser for the erasable TypeScript users write, building a flat-array syntax tree.
 - **Done when:** the whole corpus parses, the tree's node kinds and positions match `ts.createSourceFile`'s, and parse time
   is measured against sucrase and the compiler.

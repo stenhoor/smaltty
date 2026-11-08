@@ -7,7 +7,7 @@ and that each file's erasable or not-erasable label matches TypeScript's `erasab
 | --- | --- | --- |
 | `apps/` | Code users write: smaltui's TypeScript tab (the demo's tab and the starter) and smaltnb's example notebooks | smaltui `envs/demo/env.json` and `app/main.ts`; smaltnb `examples/` |
 | `libs/` | Larger real code: smaltdf's source, smaltnb's parser and runtime, smaltkit's modules, smaltui's tokenizer | copied from those repositories (MIT), 2026-11-08 |
-| `edge/erasable/` | Type syntax the stripper must remove, written to cover the grammar | written for smaltty |
+| `edge/erasable/` | Type syntax the stripper must remove, and JavaScript grammar corners (`grammar.ts`), written to cover the grammar | written for smaltty |
 | `edge/non-erasable/` | `enum`, `namespace`, parameter properties, `import =`: smaltty reports these as errors | written for smaltty |
 
 Generated scripts (40 KB and 400 KB, smaltdf-style) are made by `bench/corpus.ts`, not stored.
