@@ -65,6 +65,8 @@ Astral's ty (a Python type checker) is the model to follow. We're taking its des
 
 ## Parts and phases
 
+The order of work, with its gates, is in [MILESTONES.md](MILESTONES.md).
+
 | Phase | Part | Replaces | Size estimate |
 | --- | --- | --- | --- |
 | 0 | Scanner and parser: all TypeScript syntax users write, into a compact AST | sucrase's parser, `ts.createSourceFile` | 4,000–6,000 lines |
