@@ -48,6 +48,7 @@ Out of scope: checking table and column names against a database schema. That is
 | Syntax | Erasable TypeScript only (as `erasableSyntaxOnly` and Node's type stripping): `enum`, `namespace` with values and constructor parameter properties are errors with a clear message, not transforms. Line and column positions are kept. |
 | Built-in types | Our own: a compact declaration set for what users call (Array, Promise, Math, JSON, string methods, …), turned into a type table at build time. Anything not covered is unknown, and unknown is never an error. |
 | Type errors on Run | Warn and run, for now. Severity is part of every diagnostic so that blocking can be added later. |
+| smaltdf's types | Read from smaltdf's `.d.ts` in the page, when checking starts (decided 2026-11-08). smaltdf doesn't change, and there is no build step. A prepared table built when the app is built, or shipped by smaltdf, can come later if measurements call for it. |
 | How apps use it | smaltkit wraps smaltty (a thin module that runs it in a worker and hands its diagnostics to the editors). Apps import smaltkit; smaltty doesn't depend on smaltkit. |
 
 ## Model: ty
@@ -59,7 +60,8 @@ Astral's ty (a Python type checker) is the model to follow. We're taking its des
   and quiet. This lets checking start small with no false errors.
 - **One parser** for the stripper, smaltnb's analysis and the checker.
 - **Prepared types:** in tsc, reading `lib.d.ts` costs about 100 ms on every cold check, whatever the input size.
-  smaltty's built-in types and smaltdf's declarations are compiled into a table at build time and load at once.
+  smaltty's built-in types are compiled into a table at build time and load at once. smaltdf's `.d.ts` is small and is
+  read in the page for now.
 
 ## Parts and phases
 
@@ -121,12 +123,3 @@ Measured against the tool it replaces, doing the same work, in Node and in a bro
 ## Open questions
 
 - The package name on npm, and smalt-brand's entry for smaltty.
-- Where smaltdf's prepared type table comes from (phase 1; nothing in phase 0 depends on it). Options, with the
-  proposal's recommendation first:
-  1. **smaltty builds it from smaltdf's `.d.ts` when the app is built** (in smaltkit's vendor step, from the installed
-     package). smaltdf doesn't change, the table always matches the installed smaltdf, and the format stays smaltty's to
-     change. smaltty has to read the `.d.ts` syntax tsc emits for smaltdf, but the parser reads types anyway.
-  2. **smaltty reads smaltdf's `.d.ts` in the page, when checking starts.** No build step. This costs a parse on every
-     load: small for smaltdf, but it is the cost the prepared tables exist to avoid.
-  3. **smaltdf ships the table.** Always matches its version, but a core library takes a dev dependency on a kit still
-     being proven, and every change to the format means a smaltdf release.
