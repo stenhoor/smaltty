@@ -15,4 +15,5 @@ jobs:
       - run: npm ci          # also builds dist/ (prepare)
       - run: npm run typecheck
       - run: npm test
+      - run: npm run test:self   # the tests again, on .ts files smaltty stripped
       - run: npm run bench -- --quick   # checks the harness runs; timings on CI runners are not recorded

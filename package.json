@@ -29,7 +29,8 @@
     "prepare": "npm run build",
     "typecheck": "tsc -p .",
     "test": "npm run build && node --test test/*.test.ts",
-    "bench": "npm run build && node bench/run.ts"
+    "bench": "npm run build && node bench/run.ts",
+    "test:self": "npm run build && node --import ./test/register.mjs --test test/*.test.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -18,36 +18,35 @@ Times are medians after warm-up, in milliseconds. What is measured, and why:
 - **`transpileModule`:** smaltnb's options (`runtime.ts`), what smaltnb runs today.
 - **Parse + resolve names:** smaltnb's `format.ts`: parse, a one-file program with no lib, and the declaration of every
   identifier. This is the work smaltty's binder replaces.
-- **smaltty parse:** the scanner and parser building the full tree (milestone 2). Stripping (milestone 3) adds a pass
-  over that tree.
+- **smaltty strip:** the stripper (milestone 3): parse, then types replaced by spaces.
+- **smaltty parse:** the scanner and parser building the full tree (milestone 2).
 - **Full type check:** a reference for phase 1 only. Nothing smaltty builds before gate B is compared with it.
 - **Loading:** from a fresh process to the first stripped line. smaltnb pays the compiler's load when its kernel starts.
 
-## Milestone 2: the parser, 2026-11-08
+## Latest run: milestone 3, the stripper, 2026-11-08
 
 Node v22.23.4, linux x64, Intel(R) Xeon(R) Processor (4 threads). sucrase 3.35.1, typescript 5.9.3.
 
 ### Stripping and name analysis
 
-Median milliseconds to process the whole group once, on the files sucrase accepts (all but one edge case).
+Median milliseconds to process the whole group once, on the files every tool accepts: sucrase rejects one edge case, smaltty refuses the non-erasable files (three of smaltdf's, and the non-erasable edge cases).
 
-| Corpus | Files | Size (KB) | sucrase strip | `transpileModule` | TypeScript parse | smaltty parse | Parse + resolve names (smaltnb) |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| App code (smaltui tabs, smaltnb notebooks) | 4 | 2.9 | 0.103 | 3.84 | 0.173 | **0.060** | 2.92 |
-| Library code (smaltdf, smaltnb, smaltkit, smaltui) | 16 | 167 | 11.20 | 104 | 18.18 | **4.08** | 116 |
-| Syntax edge cases | 10 | 8.7 | 0.752 | 17.81 | 1.27 | **0.290** | 9.24 |
-| Generated script, 40 KB | 1 | 39 | 2.59 | 22.12 | 4.82 | **1.03** | 39.70 |
-| Generated script, 400 KB | 1 | 391 | 56.41 | 212 | 51.25 | **10.78** | 520 |
+| Corpus | Files | Size (KB) | sucrase strip | `transpileModule` | smaltty strip | TypeScript parse | smaltty parse | Parse + resolve names (smaltnb) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| App code (smaltui tabs, smaltnb notebooks) | 4 | 2.9 | 0.102 | 3.80 | **0.074** | 0.174 | **0.062** | 2.92 |
+| Library code (smaltdf, smaltnb, smaltkit, smaltui) | 13 | 125 | 8.02 | 73.42 | **3.93** | 12.47 | **3.03** | 76.67 |
+| Syntax edge cases | 6 | 7.8 | 0.636 | 12.25 | **0.365** | 1.14 | **0.267** | 6.76 |
+| Generated script, 40 KB | 1 | 39 | 2.23 | 20.69 | **1.42** | 4.39 | **1.07** | 34.55 |
+| Generated script, 400 KB | 1 | 391 | 59.93 | 195 | **15.00** | 55.55 | **12.35** | 616 |
 
 ### App code, per file
 
-| File | Size (bytes) | sucrase strip | `transpileModule` | smaltty parse | Parse + resolve names |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `apps/smaltnb-regional.nb.ts` | 1147 | 0.049 | 1.31 | **0.031** | 1.28 |
-| `apps/smaltnb-shop.nb.ts` | 945 | 0.033 | 0.959 | **0.017** | 0.727 |
-| `apps/smaltui-demo-frames.ts` | 719 | 0.022 | 0.588 | **0.012** | 0.319 |
-| `apps/smaltui-starter.ts` | 190 | 0.004 | 0.332 | **0.003** | 0.071 |
-
+| File | Size (bytes) | sucrase strip | `transpileModule` | smaltty strip | smaltty parse | Parse + resolve names |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `apps/smaltnb-regional.nb.ts` | 1147 | 0.046 | 1.34 | **0.038** | **0.031** | 1.32 |
+| `apps/smaltnb-shop.nb.ts` | 945 | 0.027 | 0.944 | **0.021** | **0.018** | 0.667 |
+| `apps/smaltui-demo-frames.ts` | 719 | 0.021 | 0.639 | **0.014** | **0.012** | 0.332 |
+| `apps/smaltui-starter.ts` | 190 | 0.004 | 0.338 | **0.003** | **0.003** | 0.077 |
 
 ### Full type check (reference for phase 1)
 
@@ -55,25 +54,43 @@ Median milliseconds to process the whole group once, on the files sucrase accept
 
 | File | Cold | Warm |
 | --- | ---: | ---: |
-| `apps/smaltnb-regional.nb.ts` | 37.83 | 4.23 |
-| `apps/smaltnb-shop.nb.ts` | 32.25 | 1.75 |
-| `apps/smaltui-demo-frames.ts` | 32.70 | 1.50 |
-| `apps/smaltui-starter.ts` | 31.90 | 1.01 |
-| `generated/40k.ts` | 91.57 | 53.37 |
+| `apps/smaltnb-regional.nb.ts` | 41.36 | 4.39 |
+| `apps/smaltnb-shop.nb.ts` | 35.19 | 1.85 |
+| `apps/smaltui-demo-frames.ts` | 34.59 | 1.61 |
+| `apps/smaltui-starter.ts` | 33.21 | 1.10 |
+| `generated/40k.ts` | 92.72 | 56.70 |
 
 ### Loading and size
 
-Loading: a fresh process, from first use to the first stripped (or, for smaltty, parsed) line, median of runs. smaltnb evaluates `lib/typescript.js` with `new Function`, as here. smaltty: all of `dist/*.js`, unminified.
+Loading: a fresh process, from first use to the first stripped line, median of runs. smaltnb evaluates `lib/typescript.js` with `new Function`, as here. smaltty: all of `dist/*.js`, unminified.
 
 | Tool | Load (ms) | Size | Gzipped |
 | --- | ---: | ---: | ---: |
-| sucrase (as `@smaltworks/smaltdb-sucrase` bundles it) | 32.51 | ~200 KB | ~48 KB |
-| TypeScript compiler (`lib/typescript.js`) | 157 | 8899 KB | 1606 KB |
-| smaltty (`dist/*.js`) | 7.47 | 139 KB | 25 KB |
+| sucrase (as `@smaltworks/smaltdb-sucrase` bundles it) | 31.41 | ~200 KB | ~48 KB |
+| TypeScript compiler (`lib/typescript.js`) | 268 | 8899 KB | 1606 KB |
+| smaltty (`dist/*.js`) | 8.97 | 156 KB | 30 KB |
 
 sucrase's bundled size is from smaltdb-sucrase's README (an esbuild bundle of sucrase and its dependencies); smaltty doesn't bundle sucrase to measure it.
 
-### What milestone 2 says (gate A)
+### What milestone 3 says
+
+- **Stripping is faster than sucrase on every group and every app file:** 0.074 ms against 0.102 ms for the app
+  code, 3.9 ms against 8.0 ms for the library code, 15 ms against 60 ms at 400 KB. The stripping pass on top of the
+  parse adds 20–37% to the parse.
+- **Size:** 30 KB gzipped for all of `dist/`, with comments and no minifying, against sucrase's ~48 KB. Loading takes
+  9 ms in a fresh process, against 31 ms for sucrase.
+- **The output is TypeScript's own:** on the corpus and on the TypeScript in the smalt repositories (261 erasable files
+  out of 301, by `node test/strip-sweep.ts`), the stripped program is the one TypeScript's transpile gives with
+  `verbatimModuleSyntax`, with every line and column where it was. The other 40 files are the ones TypeScript's
+  `erasableSyntaxOnly` rejects, and smaltty refuses all of them.
+- **It runs:** smaltty's own test suite (`npm run test:self`, in CI) and smaltkit's run on code smaltty stripped, with
+  the same results as under Node's type stripping.
+- The library code group is smaller than in milestone 2 (13 files, 125 KB): the three smaltdf files with parameter
+  properties are left out, since smaltty refuses them.
+
+### What milestone 2 said (gate A)
+
+From the milestone 2 run, which still counted the three non-erasable smaltdf files in the library code (167 KB).
 
 - **Building the full tree is faster than sucrase's stripping**, on every group and every app file: 0.060 ms against
   0.103 ms for the app code, 4.1 ms against 11.2 ms for 167 KB of library code, 10.8 ms against 56 ms at 400 KB. It is

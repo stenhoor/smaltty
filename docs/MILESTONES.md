@@ -32,6 +32,9 @@ Status: done, 2026-11-08. Waiting on gate A ([BENCHMARKS.md](BENCHMARKS.md), "Wh
 
 ## 3. Stripper
 
+Status: done, 2026-11-08 ([BENCHMARKS.md](BENCHMARKS.md), "What milestone 3 says"). Gate A was passed on 2026-11-08: one
+tree, as designed.
+
 - Types removed, line and column positions kept. `enum`, `namespace` with values and constructor parameter properties are
   errors. Syntax errors say where (file, line, column), in the shape of the current `Transpiler` interface.
 - **Done when:** on the corpus, smaltty's output runs the same as sucrase's; it's no slower than sucrase; and it's under

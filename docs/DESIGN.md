@@ -84,6 +84,24 @@ flags, operator), all in one buffer, built without an object per node. Modifiers
 `export`, `type`-only) are flags, not nodes. The parser stops at the first syntax error, with its line and column; there
 is no recovery.
 
+### The stripper
+
+Types are replaced by spaces, keeping line breaks, so the output has the same length and every line and column of the
+source. The parser records the TypeScript-only syntax it meets (annotations, type parameters and arguments, `as` and
+`satisfies`, `!`, `?`, `this` parameters, `implements`, TypeScript's modifiers); a pass over the tree adds whole
+declarations (interfaces, type aliases, `declare`, overloads, abstract members, type-only namespaces, imports and
+exports marked `type`). Two edits keep the meaning where removing text alone would not:
+
+- A statement that ended without a semicolon and whose last token is removed gets a `;` where the removed text starts,
+  as does every removed statement or class member: otherwise a next line starting with `(`, `[` or `` ` `` would join it.
+- An arrow function whose return type spans lines gets its `)` moved to the end of the removed type, since `=>` must be
+  on the line of `)`.
+
+Imports and exports are kept as written unless marked `type`: TypeScript's `verbatimModuleSyntax`, which is what Node's
+type stripping does too. An import of something that is only a type must say so (`import { type Order } from …`);
+sucrase instead drops imports that are only used as types, which needs to know how every name is used. Decided in
+milestone 3; the apps' import handling is looked at when they move over (milestones 4 and 6).
+
 ### What the binder adds (smaltnb)
 
 smaltnb's `format.ts` (446 lines) uses the compiler for: parsing; `getSymbolAtLocation` and

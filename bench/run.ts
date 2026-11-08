@@ -10,7 +10,7 @@ import { arch, cpus, platform } from 'node:os';
 import { gzipSync } from 'node:zlib';
 import ts from 'typescript';
 import { transform } from 'sucrase';
-import { parse } from 'smaltty';
+import { parse, strip } from 'smaltty';
 import { corpusFiles, generatedFiles, type CorpusFile, type Group } from './corpus.ts';
 
 const quick = process.argv.includes('--quick');
@@ -127,19 +127,21 @@ line();
 
 line('### Stripping and name analysis');
 line();
-line('Median milliseconds to process the whole group once, on the files sucrase accepts (all but one edge case).');
+line('Median milliseconds to process the whole group once, on the files every tool accepts: sucrase rejects one edge case, smaltty refuses the non-erasable files (three of smaltdf\'s, and the non-erasable edge cases).');
 line();
-line('| Corpus | Files | Size (KB) | sucrase strip | `transpileModule` | TypeScript parse | smaltty parse | Parse + resolve names (smaltnb) |');
-line('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
+line('| Corpus | Files | Size (KB) | sucrase strip | `transpileModule` | smaltty strip | TypeScript parse | smaltty parse | Parse + resolve names (smaltnb) |');
+line('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
 for (const g of groups) {
-  const files = g.files.filter((f) => f.sucrase);
+  // The files every tool accepts: sucrase rejects one edge case, smaltty refuses the non-erasable ones.
+  const files = g.files.filter((f) => f.sucrase && f.erasable);
   const bytes = files.reduce((n, f) => n + f.text.length, 0);
-  const strip = time(() => { for (const f of files) sucraseStrip(f.text); });
+  const sucrased = time(() => { for (const f of files) sucraseStrip(f.text); });
   const transpile = time(() => { for (const f of files) tsTranspile(f.text); });
+  const stripped = time(() => { for (const f of files) strip(f.text); });
   const tsParsed = time(() => { for (const f of files) tsParse(f.name, f.text); });
   const parsed = time(() => { for (const f of files) parse(f.text); });
   const names = time(() => { for (const f of files) tsResolveNames(f.name, f.text); });
-  line(`| ${g.label} | ${files.length} | ${kb(bytes)} | ${fmt(strip)} | ${fmt(transpile)} | ${fmt(tsParsed)} | **${fmt(parsed)}** | ${fmt(names)} |`);
+  line(`| ${g.label} | ${files.length} | ${kb(bytes)} | ${fmt(sucrased)} | ${fmt(transpile)} | **${fmt(stripped)}** | ${fmt(tsParsed)} | **${fmt(parsed)}** | ${fmt(names)} |`);
 }
 line();
 
@@ -147,10 +149,10 @@ line();
 
 line('### App code, per file');
 line();
-line('| File | Size (bytes) | sucrase strip | `transpileModule` | smaltty parse | Parse + resolve names |');
-line('| --- | ---: | ---: | ---: | ---: | ---: |');
+line('| File | Size (bytes) | sucrase strip | `transpileModule` | smaltty strip | smaltty parse | Parse + resolve names |');
+line('| --- | ---: | ---: | ---: | ---: | ---: | ---: |');
 for (const f of groups[0]!.files) {
-  line(`| \`${f.name}\` | ${f.text.length} | ${fmt(time(() => sucraseStrip(f.text), 500))} | ${fmt(time(() => tsTranspile(f.text), 500))} | **${fmt(time(() => parse(f.text), 500))}** | ${fmt(time(() => tsResolveNames(f.name, f.text), 500))} |`);
+  line(`| \`${f.name}\` | ${f.text.length} | ${fmt(time(() => sucraseStrip(f.text), 500))} | ${fmt(time(() => tsTranspile(f.text), 500))} | **${fmt(time(() => strip(f.text), 500))}** | **${fmt(time(() => parse(f.text), 500))}** | ${fmt(time(() => tsResolveNames(f.name, f.text), 500))} |`);
 }
 
 line();
@@ -188,13 +190,13 @@ const tsText = readFileSync(tsPath);
 const distDir = new URL('../dist/', import.meta.url);
 const distFiles = readdirSync(distDir).filter((f) => f.endsWith('.js'));
 const distText = Buffer.concat(distFiles.map((f) => readFileSync(new URL(f, distDir))));
-const loadSmaltty = fresh(`const t = performance.now(); const { parse } = await import(${JSON.stringify(new URL('index.js', distDir).href)}); parse('let a: number = 1'); console.log(performance.now() - t);`);
+const loadSmaltty = fresh(`const t = performance.now(); const { strip } = await import(${JSON.stringify(new URL('index.js', distDir).href)}); strip('let a: number = 1'); console.log(performance.now() - t);`);
 const loadSucrase = fresh(`const t = performance.now(); const { transform } = await import('sucrase'); transform('let a: number = 1', { transforms: ['typescript'] }); console.log(performance.now() - t);`);
 const loadTs = fresh(`import { readdirSync, readFileSync } from 'node:fs'; const text = readFileSync(${JSON.stringify(tsPath)}, 'utf8'); const t = performance.now(); const ts = new Function(text + '\\nreturn ts;')(); ts.transpileModule('let a: number = 1', {}); console.log(performance.now() - t);`);
 
 line('### Loading and size');
 line();
-line('Loading: a fresh process, from first use to the first stripped (or, for smaltty, parsed) line, median of runs. smaltnb evaluates `lib/typescript.js` with `new Function`, as here. smaltty: all of `dist/*.js`, unminified.');
+line('Loading: a fresh process, from first use to the first stripped line, median of runs. smaltnb evaluates `lib/typescript.js` with `new Function`, as here. smaltty: all of `dist/*.js`, unminified.');
 line();
 line('| Tool | Load (ms) | Size | Gzipped |');
 line('| --- | ---: | ---: | ---: |');

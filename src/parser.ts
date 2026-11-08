@@ -17,18 +17,25 @@ export interface ParseOptions {
 
 /** Parses TypeScript source into a Tree. Throws a SyntaxError (a ParseError, with line and column) on bad syntax. */
 export function parse(text: string, options: ParseOptions = {}): Tree {
-  const declarationFile = !!options.fileName?.endsWith('.d.ts');
-  const first = new Parser(text, options.fileName, 0);
+  return parseWithErasures(text, options.fileName).tree;
+}
+
+/**
+ * @internal The tree, and the TypeScript-only syntax the parser met (see Parser.erase), for the stripper.
+ */
+export function parseWithErasures(text: string, fileName?: string): { tree: Tree; erase: number[] } {
+  const declarationFile = !!fileName?.endsWith('.d.ts');
+  const first = new Parser(text, fileName, 0);
   // A file that starts with an import or export is a module: `await` at its top level is an operator from the start,
   // and the second parse below is not needed. Notebooks start this way.
-  if (!declarationFile && first.startsAsModule()) return new Parser(text, options.fileName, C_AWAIT).parseSourceFile();
-  const tree = first.parseSourceFile();
+  if (!declarationFile && first.startsAsModule()) return new Parser(text, fileName, C_AWAIT).run();
+  const result = first.run();
   // In a module, `await` at the top level is an operator. Whether the file is a module is known only once it is
   // parsed, so a module that used `await` outside a function is parsed again with that set, as TypeScript does.
-  if (first.possibleTopLevelAwait && !declarationFile && (first.sawImportMeta || isModule(tree))) {
-    return new Parser(text, options.fileName, C_AWAIT).parseSourceFile();
+  if (first.possibleTopLevelAwait && !declarationFile && (first.sawImportMeta || isModule(result.tree))) {
+    return new Parser(text, fileName, C_AWAIT).run();
   }
-  return tree;
+  return result;
 }
 
 /** TypeScript's isFileProbablyExternalModule, without import.meta (the parser tracks that). */
@@ -51,6 +58,17 @@ const FAIL = { fail: true };
 const FALSE = 0;
 const TRUE = 1;
 const UNKNOWN = 2;
+
+/** Modifiers that are TypeScript only: the stripper removes them. */
+const TYPE_ONLY_MODIFIERS = F.Public | F.Private | F.Protected | F.Readonly | F.Abstract | F.Override | F.Declare | F.In | F.Out;
+
+function hasLineBreak(text: string, start: number, end: number): boolean {
+  for (let i = start; i < end; i++) {
+    const c = text.charCodeAt(i);
+    if (c === 10 || c === 13 || c === 0x2028 || c === 0x2029) return true;
+  }
+  return false;
+}
 
 /** Binary operator precedence, as TypeScript's getBinaryOperatorPrecedence; -1 when the token isn't one. */
 function binaryPrecedence(t: number): number {
@@ -141,6 +159,11 @@ class Parser {
   ctx = 0;
   /** Depth of speculative parses: errors inside one throw FAIL instead of reporting. */
   spec = 0;
+  /**
+   * TypeScript-only syntax met while parsing, for the stripper: triples of start, end and a character to write at the
+   * end (0 for none). Whole declarations (interfaces, overloads …) are found later from the tree.
+   */
+  readonly erase: number[] = [];
   /** `await` was met outside an async function: a module must be parsed again (see parse). */
   possibleTopLevelAwait = false;
   sawImportMeta = false;
@@ -227,10 +250,16 @@ class Parser {
     this.st.push(n);
   }
 
+  /** Records text the stripper removes. */
+  rec(start: number, end: number, tail = 0): void {
+    this.erase.push(start, end, tail);
+  }
+
   /** Runs `fn`; if it fails (returns 0 or hits a syntax error), undoes everything it did and returns 0. */
   tryParse(fn: () => number): number {
     const saved = this.s.save();
     const tok = this.tok, prevEnd = this.prevEnd, count = this.t.count, sl = this.st.length, ctx = this.ctx;
+    const el = this.erase.length;
     this.spec++;
     let result = 0;
     try {
@@ -246,6 +275,7 @@ class Parser {
     this.t.count = count;
     this.st.length = sl;
     this.ctx = ctx;
+    this.erase.length = el;
     return 0;
   }
 
@@ -253,6 +283,7 @@ class Parser {
   lookAhead<R>(fn: () => R): R {
     const saved = this.s.save();
     const tok = this.tok, prevEnd = this.prevEnd, count = this.t.count, sl = this.st.length, ctx = this.ctx;
+    const el = this.erase.length;
     this.spec++;
     let result: R | undefined;
     try {
@@ -267,6 +298,7 @@ class Parser {
     this.t.count = count;
     this.st.length = sl;
     this.ctx = ctx;
+    this.erase.length = el;
     return result as R;
   }
 
@@ -352,6 +384,10 @@ class Parser {
       this.next();
       return this.tok === T.Comma || this.tok === T.From || this.tok === T.OpenBrace || this.tok === T.Asterisk;
     });
+  }
+
+  run(): { tree: Tree; erase: number[] } {
+    return { tree: this.parseSourceFile(), erase: this.erase };
   }
 
   parseSourceFile(): Tree {
@@ -486,6 +522,7 @@ class Parser {
       const t = this.tok;
       const flag = modifierFlag(t);
       if (!flag) break;
+      const ms = this.s.tokenStart, me = this.s.pos;
       if (t === T.Const && permitConst) {
         if (!this.tryParse(() => (this.nextIsOnSameLine() && this.canFollowModifier() ? 1 : 0))) break;
       } else if (stopAtStaticBlock && t === T.Static && this.lookAhead(() => this.next() === T.OpenBrace)) {
@@ -496,6 +533,7 @@ class Parser {
         break;
       }
       flags |= flag;
+      if (flag & TYPE_ONLY_MODIFIERS) this.rec(ms, me);
     }
     return flags;
   }
@@ -623,6 +661,7 @@ class Parser {
     this.push(this.bindingName());
     let flags = 0;
     if (this.tok === T.Exclamation && !this.s.newLine) {
+      this.rec(this.s.tokenStart, this.s.pos);
       this.next();
       flags |= F.Exclamation;
     }
@@ -698,8 +737,11 @@ class Parser {
   /** `: Type`, or 0. */
   typeAnnotation(): number {
     if (this.tok !== T.Colon) return 0;
+    const start = this.s.tokenStart;
     this.next();
-    return this.type();
+    const type = this.type();
+    this.rec(start, this.prevEnd);
+    return type;
   }
 
   functionDeclaration(start: number, flags: number): number {
@@ -730,8 +772,10 @@ class Parser {
       this.expect(T.EqualsGreaterThan);
       this.push(this.typeOrTypePredicate());
     } else if (this.tok === T.Colon) {
+      const colon = this.s.tokenStart;
       this.next();
       this.push(this.typeOrTypePredicate());
+      this.rec(colon, this.prevEnd);
     }
   }
 
@@ -741,12 +785,14 @@ class Parser {
       return;
     }
     this.tok = this.s.token;
+    const start = this.s.tokenStart;
     this.next();
     do {
       if (this.tok === T.GreaterThan) break;
       this.push(this.typeParameter());
     } while (this.eat(T.Comma));
     this.expect(T.GreaterThan);
+    this.rec(start, this.prevEnd);
   }
 
   typeParameter(): number {
@@ -764,7 +810,11 @@ class Parser {
     const saved = this.ctx;
     this.ctx &= ~C_NO_IN;
     while (this.tok !== T.CloseParen) {
+      // A `this` parameter is a type only: it goes, with its comma.
+      const isThis = this.tok === T.This;
+      const start = this.s.tokenStart;
       this.push(this.parameter());
+      if (isThis) this.rec(start, this.tok === T.Comma ? this.s.pos : this.prevEnd);
       if (this.tok !== T.CloseParen) this.expect(T.Comma);
     }
     this.ctx = saved;
@@ -783,7 +833,11 @@ class Parser {
     let flags = this.modifiers(false, false);
     if (this.eat(T.DotDotDot)) flags |= F.Rest;
     this.push(this.bindingName());
-    if (this.eat(T.Question)) flags |= F.Optional;
+    if (this.tok === T.Question) {
+      this.rec(this.s.tokenStart, this.s.pos);
+      this.next();
+      flags |= F.Optional;
+    }
     this.push(this.typeAnnotation());
     if (this.eat(T.Equals)) this.push(this.assignmentExpression());
     return this.fin(K.Parameter, start, flags, m);
@@ -812,11 +866,13 @@ class Parser {
   heritageClauses(): void {
     while (this.tok === T.Extends || this.tok === T.Implements) {
       const start = this.s.tokenStart;
+      const implementsClause = this.tok === T.Implements;
       const m = this.st.length;
       this.next();
       do this.push(this.expressionWithTypeArguments());
       while (this.eat(T.Comma));
       this.push(this.fin(K.HeritageClause, start, 0, m));
+      if (implementsClause) this.rec(start, this.prevEnd);
     }
   }
 
@@ -862,13 +918,18 @@ class Parser {
     if (this.eat(T.Asterisk)) f |= F.Generator;
     const m = this.st.length;
     this.push(this.propertyName());
-    if (this.eat(T.Question)) f |= F.Optional;
+    if (this.tok === T.Question) {
+      this.rec(this.s.tokenStart, this.s.pos);
+      this.next();
+      f |= F.Optional;
+    }
     if (f & F.Generator || this.tok === T.OpenParen || this.tok === T.LessThan) {
       this.signature(f, false);
       this.functionBlockOrSemicolon(f);
       return this.fin(K.MethodDeclaration, start, f, m);
     }
     if (!(f & F.Optional) && this.tok === T.Exclamation && !this.s.newLine) {
+      this.rec(this.s.tokenStart, this.s.pos);
       this.next();
       f |= F.Exclamation;
     }
@@ -1527,10 +1588,12 @@ class Parser {
       if (op === T.In && this.ctx & C_NO_IN) break;
       if (op === T.As || op === T.Satisfies) {
         if (this.s.newLine) break;
+        const opStart = this.s.tokenStart;
         this.next();
         const m = this.st.length;
         this.push(left);
         this.push(this.type());
+        this.rec(opStart, this.prevEnd);
         left = this.fin(op === T.As ? K.AsExpression : K.SatisfiesExpression, start, 0, m);
         continue;
       }
@@ -1683,6 +1746,7 @@ class Parser {
         continue;
       }
       if (t === T.Exclamation && !this.s.newLine) {
+        this.rec(this.s.tokenStart, this.s.pos);
         this.next();
         const m = this.st.length;
         this.push(expr);
@@ -1740,13 +1804,16 @@ class Parser {
   typeArgumentsInExpression(): number {
     if (this.s.reScanLessThan() !== T.LessThan) return 0;
     this.tok = T.LessThan;
+    const start = this.s.tokenStart;
     this.next();
     do this.push(this.type());
     while (this.eat(T.Comma));
     if (this.tok !== T.GreaterThan) return 0;
     if (this.s.reScanGreater() !== T.GreaterThan) return 0;
     this.next();
-    return this.canFollowTypeArguments() ? 1 : 0;
+    if (!this.canFollowTypeArguments()) return 0;
+    this.rec(start, this.prevEnd);
+    return 1;
   }
 
   canFollowTypeArguments(): boolean {
@@ -1784,10 +1851,12 @@ class Parser {
   typeArguments(): void {
     if (this.s.reScanLessThan() !== T.LessThan) this.error("'<' expected.");
     this.tok = T.LessThan;
+    const start = this.s.tokenStart;
     this.next();
     do this.push(this.type());
     while (this.eat(T.Comma));
     this.expect(T.GreaterThan);
+    this.rec(start, this.prevEnd);
   }
 
   arguments(): void {
@@ -2034,8 +2103,13 @@ class Parser {
     let hasReturnColon = false;
     if (this.tok === T.Colon) {
       hasReturnColon = true;
+      const closeParen = this.prevEnd - 1;
+      const colon = this.s.tokenStart;
       this.next();
       this.push(this.typeOrTypePredicate());
+      // `=>` must be on the line of `)`. If the return type spans lines, the `)` moves to the end of the erased text.
+      if (hasLineBreak(this.s.text, closeParen, this.prevEnd)) this.rec(closeParen, this.prevEnd, 41 /* ) */);
+      else this.rec(colon, this.prevEnd);
     }
     if (!allowAmbiguity && this.tok !== T.EqualsGreaterThan && this.tok !== T.OpenBrace) return 0;
     this.expect(T.EqualsGreaterThan);
