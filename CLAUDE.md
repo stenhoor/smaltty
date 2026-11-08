@@ -29,9 +29,10 @@ file is the shared starting point, and its working rules match smaltdb's `CLAUDE
 
 ## Brand
 
-Before writing the README or a site, read smalt-brand's
-[BRAND.md](https://github.com/stenhoor/smalt-brand/blob/main/BRAND.md) and
-[DECISIONS.md](https://github.com/stenhoor/smalt-brand/blob/main/DECISIONS.md).
+smaltty is one of the kits, not a top-level product: it has no brand entry, mark or site of its own. Don't propose one.
+It becomes a top-level product only if it grows into our own TypeScript compiler or a significant part of one, and
+that is the owner's call. For the README, follow smalt-brand's
+[BRAND.md](https://github.com/stenhoor/smalt-brand/blob/main/BRAND.md) as other kits do.
 
 ## Cross-repo impact
 

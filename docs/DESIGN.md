@@ -17,10 +17,10 @@ that is not TypeScript.) So types are checked while smaltdf is built, and droppe
 
 ## What smaltty is, and isn't
 
-smaltty is a kit with its own brand so that it has room to grow. smaltworks isn't in the business of writing TypeScript
-compilers. smaltty exists because it removes dependencies from the apps and may make them faster. If it ever becomes a
-full replacement for TypeScript on the strength of its speed, it can grow into a product of its own. That is a possible
-outcome, not a goal.
+smaltty is a kit, one of smaltworks' kits as the community sees them, in its own repository. smaltworks isn't in the
+business of writing TypeScript compilers. smaltty exists because it removes dependencies from the apps and may make them
+faster. It becomes a product in its own right, with its own brand, only if it grows into our own TypeScript compiler or a
+significant part of one. That is a possible outcome, not a goal.
 
 Use this test for any piece of work: does it remove outside code from the smalt apps, or make them faster? If not, it is
 a distraction and waits.
@@ -122,4 +122,4 @@ Measured against the tool it replaces, doing the same work, in Node and in a bro
 
 ## Open questions
 
-- The package name on npm, and smalt-brand's entry for smaltty.
+- The package name on npm.
