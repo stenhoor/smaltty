@@ -33,6 +33,7 @@ npm run bench          # the benchmark tables in docs/BENCHMARKS.md; --quick che
 - No run-time dependencies. sucrase and typescript may be dev dependencies for differential tests and benchmarks only.
 - Speed comes first. Every change to the scanner, parser, stripper or binder is benchmarked against the tool it
   replaces, on the same work, and a slowdown is a regression.
+- Follow TypeScript, not sucrase: where they differ, TypeScript's behaviour is right (the owner's rule).
 - The parser's tree must match TypeScript's node for node. A difference the tests or a sweep find is a bug in smaltty,
   unless TypeScript reports a syntax error there too.
 - Erasable syntax only: `enum`, `namespace` with values and constructor parameter properties are reported, not

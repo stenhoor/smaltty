@@ -99,8 +99,11 @@ exports marked `type`). Two edits keep the meaning where removing text alone wou
 
 Imports and exports are kept as written unless marked `type`: TypeScript's `verbatimModuleSyntax`, which is what Node's
 type stripping does too. An import of something that is only a type must say so (`import { type Order } from …`);
-sucrase instead drops imports that are only used as types, which needs to know how every name is used. Decided in
-milestone 3; the apps' import handling is looked at when they move over (milestones 4 and 6).
+sucrase instead drops imports that are only used as types, which needs to know how every name is used.
+
+The owner's rule (2026-11-08): **follow TypeScript, not sucrase.** Where the two differ (imports, `a as number < 2`,
+what is refused as non-erasable), smaltty does what TypeScript does, and TypeScript is the reference in the tests. The
+apps' guides say so when they move over (milestones 4 and 6).
 
 ### What the binder adds (smaltnb)
 
