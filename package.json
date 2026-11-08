@@ -1,0 +1,40 @@
+{
+  "name": "smaltty",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A TypeScript kit with no dependencies: parser, type stripper, scope analysis and (later) type checking for code written against smaltdf",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stenhoor/smaltty.git"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
+    "typecheck": "tsc -p .",
+    "test": "npm run build && node --test test/*.test.ts",
+    "bench": "npm run build && node bench/run.ts",
+    "test:self": "npm run build && node --import ./test/register.mjs --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "sucrase": "3.35.1",
+    "typescript": "5.9.3"
+  }
+}
