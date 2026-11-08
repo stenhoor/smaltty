@@ -721,6 +721,7 @@ class Parser {
           this.push(name);
         } else {
           this.expect(T.Colon);
+          flags |= F.PropertyName;
           this.push(name);
           this.push(this.bindingName());
         }

@@ -20,10 +20,12 @@ Times are medians after warm-up, in milliseconds. What is measured, and why:
   identifier. This is the work smaltty's binder replaces.
 - **smaltty strip:** the stripper (milestone 3): parse, then types replaced by spaces.
 - **smaltty parse:** the scanner and parser building the full tree (milestone 2).
+- **smaltty parse + bind:** the parse, then the binder resolving every name (milestone 5): the same work as the
+  compiler's "parse + resolve names" column.
 - **Full type check:** a reference for phase 1 only. Nothing smaltty builds before gate B is compared with it.
 - **Loading:** from a fresh process to the first stripped line. smaltnb pays the compiler's load when its kernel starts.
 
-## Latest run: milestone 3, the stripper, 2026-11-08
+## Latest run: milestone 5, the binder, 2026-11-08
 
 Node v22.23.4, linux x64, Intel(R) Xeon(R) Processor (4 threads). sucrase 3.35.1, typescript 5.9.3.
 
@@ -31,22 +33,22 @@ Node v22.23.4, linux x64, Intel(R) Xeon(R) Processor (4 threads). sucrase 3.35.1
 
 Median milliseconds to process the whole group once, on the files every tool accepts: sucrase rejects one edge case, smaltty refuses the non-erasable files (three of smaltdf's, and the non-erasable edge cases).
 
-| Corpus | Files | Size (KB) | sucrase strip | `transpileModule` | smaltty strip | TypeScript parse | smaltty parse | Parse + resolve names (smaltnb) |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| App code (smaltui tabs, smaltnb notebooks) | 4 | 2.9 | 0.102 | 3.80 | **0.074** | 0.174 | **0.062** | 2.92 |
-| Library code (smaltdf, smaltnb, smaltkit, smaltui) | 13 | 125 | 8.02 | 73.42 | **3.93** | 12.47 | **3.03** | 76.67 |
-| Syntax edge cases | 6 | 7.8 | 0.636 | 12.25 | **0.365** | 1.14 | **0.267** | 6.76 |
-| Generated script, 40 KB | 1 | 39 | 2.23 | 20.69 | **1.42** | 4.39 | **1.07** | 34.55 |
-| Generated script, 400 KB | 1 | 391 | 59.93 | 195 | **15.00** | 55.55 | **12.35** | 616 |
+| Corpus | Files | Size (KB) | sucrase strip | `transpileModule` | smaltty strip | TypeScript parse | smaltty parse | Parse + resolve names (smaltnb) | smaltty parse + bind |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| App code (smaltui tabs, smaltnb notebooks) | 4 | 2.9 | 0.101 | 3.63 | **0.073** | 0.173 | **0.061** | 2.66 | **0.084** |
+| Library code (smaltdf, smaltnb, smaltkit, smaltui) | 13 | 125 | 8.11 | 77.23 | **3.95** | 12.84 | **3.13** | 88.12 | **5.08** |
+| Syntax edge cases | 6 | 7.8 | 0.638 | 10.73 | **0.371** | 1.12 | **0.270** | 7.59 | **0.464** |
+| Generated script, 40 KB | 1 | 39 | 2.52 | 21.86 | **1.42** | 4.55 | **1.08** | 34.44 | **1.66** |
+| Generated script, 400 KB | 1 | 391 | 53.09 | 213 | **15.02** | 54.61 | **11.80** | 583 | **18.62** |
 
 ### App code, per file
 
-| File | Size (bytes) | sucrase strip | `transpileModule` | smaltty strip | smaltty parse | Parse + resolve names |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `apps/smaltnb-regional.nb.ts` | 1147 | 0.046 | 1.34 | **0.038** | **0.031** | 1.32 |
-| `apps/smaltnb-shop.nb.ts` | 945 | 0.027 | 0.944 | **0.021** | **0.018** | 0.667 |
-| `apps/smaltui-demo-frames.ts` | 719 | 0.021 | 0.639 | **0.014** | **0.012** | 0.332 |
-| `apps/smaltui-starter.ts` | 190 | 0.004 | 0.338 | **0.003** | **0.003** | 0.077 |
+| File | Size (bytes) | sucrase strip | `transpileModule` | smaltty strip | smaltty parse | Parse + resolve names | smaltty parse + bind |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `apps/smaltnb-regional.nb.ts` | 1147 | 0.048 | 1.25 | **0.038** | **0.032** | 1.19 | **0.041** |
+| `apps/smaltnb-shop.nb.ts` | 945 | 0.027 | 0.950 | **0.021** | **0.018** | 0.701 | **0.025** |
+| `apps/smaltui-demo-frames.ts` | 719 | 0.022 | 0.653 | **0.014** | **0.012** | 0.342 | **0.017** |
+| `apps/smaltui-starter.ts` | 190 | 0.004 | 0.306 | **0.003** | **0.003** | 0.074 | **0.003** |
 
 ### Full type check (reference for phase 1)
 
@@ -54,11 +56,11 @@ Median milliseconds to process the whole group once, on the files every tool acc
 
 | File | Cold | Warm |
 | --- | ---: | ---: |
-| `apps/smaltnb-regional.nb.ts` | 41.36 | 4.39 |
-| `apps/smaltnb-shop.nb.ts` | 35.19 | 1.85 |
-| `apps/smaltui-demo-frames.ts` | 34.59 | 1.61 |
-| `apps/smaltui-starter.ts` | 33.21 | 1.10 |
-| `generated/40k.ts` | 92.72 | 56.70 |
+| `apps/smaltnb-regional.nb.ts` | 41.70 | 4.29 |
+| `apps/smaltnb-shop.nb.ts` | 34.99 | 1.77 |
+| `apps/smaltui-demo-frames.ts` | 33.45 | 1.51 |
+| `apps/smaltui-starter.ts` | 33.28 | 1.12 |
+| `generated/40k.ts` | 91.26 | 55.88 |
 
 ### Loading and size
 
@@ -66,13 +68,24 @@ Loading: a fresh process, from first use to the first stripped line, median of r
 
 | Tool | Load (ms) | Size | Gzipped |
 | --- | ---: | ---: | ---: |
-| sucrase (as `@smaltworks/smaltdb-sucrase` bundles it) | 31.41 | ~200 KB | ~48 KB |
-| TypeScript compiler (`lib/typescript.js`) | 268 | 8899 KB | 1606 KB |
-| smaltty (`dist/*.js`) | 8.97 | 156 KB | 30 KB |
+| sucrase (as `@smaltworks/smaltdb-sucrase` bundles it) | 42.88 | ~200 KB | ~48 KB |
+| TypeScript compiler (`lib/typescript.js`) | 191 | 8899 KB | 1606 KB |
+| smaltty (`dist/*.js`) | 13.60 | 186 KB | 35 KB |
 
 sucrase's bundled size is from smaltdb-sucrase's README (an esbuild bundle of sucrase and its dependencies); smaltty doesn't bundle sucrase to measure it.
 
-### What milestone 3 says
+### What milestone 5 says
+
+- **Parse and bind take 2–5% of the compiler's time** for the same answer: 0.084 ms against 2.66 ms for the app code,
+  5.1 ms against 88 ms for the library code, 19 ms against 583 ms at 400 KB. That is before counting the compiler's
+  load (191 ms here), which smaltnb pays when its kernel starts.
+- **Binding adds 25–60% to the parse;** a notebook binds in 0.025–0.041 ms.
+- **The answers are TypeScript's:** every name smaltty binds names the declaration TypeScript's checker names, on the
+  corpus, TypeScript's and Node's declarations and TypeScript's compiler (all in CI), and the smalt repositories plus
+  sucrase (by hand, `node test/binding.ts`): over 500,000 names, with no differences.
+- **Size:** 35 KB gzipped for all of `dist/` with the binder.
+
+### What milestone 3 said
 
 - **Stripping is faster than sucrase on every group and every app file:** 0.074 ms against 0.102 ms for the app
   code, 3.9 ms against 8.0 ms for the library code, 15 ms against 60 ms at 400 KB. The stripping pass on top of the
