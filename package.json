@@ -30,11 +30,15 @@
     "typecheck": "tsc -p .",
     "test": "npm run build && node --test test/*.test.ts",
     "bench": "npm run build && node bench/run.ts",
-    "test:self": "npm run build && node --import ./test/register.mjs --test test/*.test.ts"
+    "test:self": "npm run build && node --import ./test/register.mjs --test test/*.test.ts",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "sucrase": "3.35.1",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitepress": "^1.6.4"
   }
 }
