@@ -14,6 +14,7 @@ npm run typecheck      # tsc --noEmit, strict and erasableSyntaxOnly, over src/,
 npm test               # build, then node --test test/*.test.ts (the corpus checks among them)
 npm run test:self      # the same tests, with .ts files stripped by smaltty instead of Node (test/register.mjs)
 npm run bench          # the benchmark tables in docs/BENCHMARKS.md; --quick checks the harness only
+npm run docs:dev       # the docs site (docs/, VitePress); docs:build fails on dead links (CI runs it)
 ```
 
 ## Repo map
@@ -27,7 +28,9 @@ npm run bench          # the benchmark tables in docs/BENCHMARKS.md; --quick che
   for the stripper, against TypeScript's own transpile, and `node test/binding.ts <paths>` for the binder, against
   TypeScript's checker.
 - `corpus/` the input for tests and benchmarks ([corpus/README.md](corpus/README.md)). `bench/` the harness.
-- `docs/` [DESIGN.md](docs/DESIGN.md), [MILESTONES.md](docs/MILESTONES.md), [BENCHMARKS.md](docs/BENCHMARKS.md).
+- `docs/` is the docs site (VitePress, deployed to stenhoor.github.io/smaltty/ from `main` by `.github/workflows/docs.yml`):
+  `guide/`, and [DESIGN.md](docs/DESIGN.md), [MILESTONES.md](docs/MILESTONES.md), [BENCHMARKS.md](docs/BENCHMARKS.md).
+  `docs/.vitepress/theme/` (except `index.ts`) and `docs/public/` are copied from smalt-brand unchanged.
 
 ## Rules for code here
 
@@ -56,10 +59,12 @@ npm run bench          # the benchmark tables in docs/BENCHMARKS.md; --quick che
 
 ## Brand
 
-smaltty is one of the kits, not a top-level product: it has no brand entry, mark or site of its own. Don't propose one.
-It becomes a top-level product only if it grows into our own TypeScript compiler or a significant part of one, and
-that is the owner's call. For the README, follow smalt-brand's
-[BRAND.md](https://github.com/stenhoor/smalt-brand/blob/main/BRAND.md) as other kits do.
+smaltty is one of the kits, not a top-level product: it has no brand entry or mark of its own. Don't propose one. It
+becomes a top-level product only if it grows into our own TypeScript compiler or a significant part of one, and that
+is the owner's call. Its docs site and README follow smalt-brand's
+[BRAND.md](https://github.com/stenhoor/smalt-brand/blob/main/BRAND.md) "Sites and READMEs", like the other docs sites
+(the owner's choice, 2026-11-08), with two differences while it has no brand entry: the name is text where they show a
+lockup, and the hero has a plain description instead of a family tagline.
 
 ## Cross-repo impact
 
