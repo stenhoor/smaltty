@@ -69,14 +69,20 @@ Status: done, 2026-11-08 ([BENCHMARKS.md](BENCHMARKS.md), "What milestone 5 says
 
 **Gate B (owner):** with milestones 1–6 measured, start type checking or stop at the minimal kit.
 
+Decided early, on 2026-11-10: **start type checking now**, with smaltts in scope beside smaltdf (DESIGN.md, "smaltts").
+Milestone 7 starts before milestone 6; milestone 6 goes on independently.
+
 ## 7. Checker trial
 
-- Built-in types prepared when smaltty is built (only what users call). smaltdf's `.d.ts` read in the page. Checks on
-  calls into smaltdf: unknown methods and properties, argument types and counts, option keys, literal values, a missing
-  `await`. Anything not modelled is unknown and quiet.
-- **Done when:** the checker reports no errors that tsc doesn't (zero false errors) on the corpus and on smaltdf's own
-  tests and examples; the share of tsc's errors it does catch is recorded; and cold checks and re-checks after an edit are
-  measured against the targets (under 10 ms cold, 1–2 ms per edit).
+- Built-in types prepared when smaltty is built (only what users call). smaltdf's and smaltts's `.d.ts` read in the
+  page. Checks on calls into smaltdf and smaltts: unknown methods and properties, argument types and counts, option
+  keys, literal values, a missing `await`; for smaltts, also column names and types in row callbacks, which come from
+  its mapped, conditional and template-literal types. Anything not modelled is unknown and quiet.
+- **Done when:** the checker reports no errors that tsc doesn't (zero false errors) on the corpus and on smaltdf's and
+  smaltts's own tests and examples; the share of tsc's errors it does catch is recorded; smaltts's compile-time tests
+  (its `@ts-expect-error` lines) are reported; and cold checks and re-checks after an edit are measured against the
+  targets (under 10 ms cold, 1–2 ms per edit).
+- smaltts then runs the checker in its `npm run check` (smaltts MILESTONES.md, "Alongside").
 
 **Gate C (owner):** targets met → milestone 8. Not met → stop, or fix what the measurements point to.
 
@@ -87,6 +93,6 @@ Status: done, 2026-11-08 ([BENCHMARKS.md](BENCHMARKS.md), "What milestone 5 says
 
 ## Not scheduled
 
-Anything past checking smaltdf's API: other APIs, more of TypeScript, blocking runs on errors, a prepared smaltdf type
+Anything past checking smaltdf's and smaltts's APIs: other APIs, more of TypeScript, blocking runs on errors, a prepared smaltdf type
 table. Each one is weighed against the test in DESIGN.md (does it remove outside code from the apps, or make them
 faster?) before it is scheduled.

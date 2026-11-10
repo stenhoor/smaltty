@@ -1,7 +1,8 @@
 # CLAUDE.md
 
 smaltty is a TypeScript kit with no outside code: a parser, a type stripper, scope analysis and, later, a type checker
-for TypeScript written against smaltdf. It replaces sucrase in smaltui and the TypeScript compiler in smaltnb. smaltkit
+for TypeScript written against smaltdf and smaltts (smaltts's TypeScript tooling is smaltty: owner's decision,
+2026-11-10). It replaces sucrase in smaltui and the TypeScript compiler in smaltnb. smaltkit
 wraps it for the apps. Read [docs/DESIGN.md](docs/DESIGN.md) first: it holds the owner's decisions and their order.
 Milestones 1–5 are done (scaffold and baseline, parser, stripper, smaltui moved over, binder); see docs/MILESTONES.md for what's next. Several Claude Code sessions work on the smalt repos in parallel and cannot see each other: this
 file is the shared starting point, and its working rules match smaltdb's `CLAUDE.md`.
