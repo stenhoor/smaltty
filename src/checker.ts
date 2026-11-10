@@ -3,8 +3,11 @@
 //
 // The gradual guarantee (DESIGN.md, "Model: ty"): anything the checker doesn't model is unknown, and unknown is never
 // an error. A type is modelled only where the declarations say exactly what it is: a class, an interface or a type
-// literal whose members are all known (no index signature, no base it can't read), or a function with one signature.
-// Everything else (unions, generics' arguments, mapped and conditional types, the built-in types) is unknown for now.
+// literal whose members are all known (no index signature, no base it can't read), with its type arguments; an
+// object literal; a mapped type over known keys; an intersection of those; or a function. Type arguments are inferred
+// from a call's arguments, and arrow functions' parameters are typed by where they are passed, so a row callback's
+// columns (smaltts's `Cols<Row>`) are known. Everything else (unions other than of string literals, conditional types,
+// the built-in types) is unknown for now.
 //
 // What it reports, by tsc's codes, so the tests compare the two diagnostic for diagnostic:
 // - 2339: a property that does not exist on a known type, and 2551 when tsc would suggest a member's name;
@@ -30,6 +33,31 @@ export interface CheckOptions {
   readonly roots?: readonly string[];
   /** Bare module specifiers to files: `{ '@smaltworks/smaltts': 'smaltts/src/index.ts' }`. */
   readonly packages?: Readonly<Record<string, string>>;
+  /** False: keep the errors `// @ts-expect-error` and `// @ts-ignore` would silence (default true). */
+  readonly suppress?: boolean;
+}
+
+/** A `// @ts-expect-error` comment, and whether the checker finds an error on the line it covers. */
+export interface Expectation {
+  readonly file: string;
+  /** The line (from 1) the comment covers. */
+  readonly line: number;
+  readonly found: boolean;
+}
+
+/** Each `// @ts-expect-error` in the roots, and whether the checker reports the error it expects. */
+export function expectations(files: ReadonlyMap<string, string>, options: CheckOptions = {}): Expectation[] {
+  const all = check(files, { ...options, suppress: false });
+  const out: Expectation[] = [];
+  for (const path of options.roots ?? [...files.keys()]) {
+    const text = files.get(path) ?? '';
+    const lines = text.split('\n');
+    lines.forEach((l, i) => {
+      if (!/^\s*\/\/\s*@ts-expect-error\b/.test(l)) return;
+      out.push({ file: path, line: i + 2, found: all.some((d) => d.file === path && lineOf(text, d.start) === i + 1) });
+    });
+  }
+  return out;
 }
 
 /** Check `files` (path to text) and return the errors found in the roots. */
@@ -49,26 +77,42 @@ interface Decl {
   readonly node: number;
 }
 
+/** Type arguments: a type parameter (by `file:node`) to its type. */
+type Env = ReadonlyMap<string, Type>;
+const NO_ENV: Env = new Map();
+
+/** A signature: a declaration with parameters, and the type arguments of the type it belongs to. */
+interface Sig {
+  readonly decl: Decl;
+  readonly env: Env;
+}
+
 type Type =
   | { readonly k: 'unknown' }
   /** A primitive (its members are the built-in types', not modelled yet). */
   | { readonly k: 'primitive' }
-  /** An object: a class instance, an interface or a type literal. */
-  | { readonly k: 'object'; readonly decls: readonly Decl[]; readonly name: string }
+  /** String literals: one (`'a'`) or a union of them (`'a' | 'b'`, `keyof T`). */
+  | { readonly k: 'keys'; readonly names: ReadonlySet<string> }
+  /** An object: a class instance, an interface or a type literal, with its type arguments. */
+  | { readonly k: 'object'; readonly decls: readonly Decl[]; readonly name: string; readonly env: Env }
+  /** Known properties: an object literal, or a mapped type evaluated. */
+  | { readonly k: 'record'; readonly props: ReadonlyMap<string, () => Type>; readonly name: string }
+  | { readonly k: 'intersection'; readonly parts: readonly Type[]; readonly name: string }
   /** A class as a value: what `new` makes, and its static members. */
   | { readonly k: 'class'; readonly decl: Decl }
   /** A function's signatures (more than one: overloads). */
-  | { readonly k: 'function'; readonly signatures: readonly Decl[] }
+  | { readonly k: 'function'; readonly signatures: readonly Sig[] }
   /** `import * as ns`: a module's exports. */
   | { readonly k: 'namespace'; readonly file: SourceInfo };
 
 const UNKNOWN: Type = { k: 'unknown' };
 const PRIMITIVE: Type = { k: 'primitive' };
+const keys = (names: Iterable<string>): Type => ({ k: 'keys', names: new Set(names) });
 
 /** What every object has from Object.prototype. */
 const OBJECT_MEMBERS = new Set(['constructor', 'toString', 'toLocaleString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf', 'propertyIsEnumerable']);
 
-const PRIMITIVE_KINDS = new Set([K.StringKeyword, K.NumberKeyword, K.BooleanKeyword, K.BigIntKeyword, K.SymbolKeyword, K.LiteralType]);
+const PRIMITIVE_KINDS = new Set([K.StringKeyword, K.NumberKeyword, K.BooleanKeyword, K.BigIntKeyword, K.SymbolKeyword]);
 
 interface Members {
   /** Member name to its declarations. */
@@ -77,11 +121,26 @@ interface Members {
   open: boolean;
 }
 
+/** A type's properties, each typed on demand; `open` when they can't all be known. */
+interface Props {
+  readonly names: ReadonlyMap<string, () => Type>;
+  readonly open: boolean;
+}
+
 interface SourceInfo {
   readonly path: string;
   readonly tree: Tree;
   readonly bindings: Bindings;
 }
+
+/** A call resolved: its signature, the type arguments inferred, and its type. */
+interface Resolved {
+  readonly sig: Sig | undefined;
+  readonly env: Env;
+  readonly type: Type;
+}
+
+const keyOf = (d: Decl): string => `${d.file.path}:${d.node}`;
 
 class Checker {
   private readonly files: ReadonlyMap<string, string>;
@@ -89,6 +148,11 @@ class Checker {
   private readonly sources = new Map<string, SourceInfo | null>();
   private readonly members = new Map<string, Members>();
   private readonly typing = new Set<string>();
+  private readonly exprTypes = new Map<string, Type>();
+  private readonly calls = new Map<string, Resolved>();
+  /** Parameters of arrow functions typed by where they are passed (`file:node` to type). */
+  private readonly contextual = new Map<string, Type>();
+  private depth = 0;
 
   constructor(files: ReadonlyMap<string, string>, options: CheckOptions) {
     this.files = files;
@@ -117,12 +181,16 @@ class Checker {
     if (!f) return [];
     const out: Diagnostic[] = [];
     const t = f.tree;
+    if (/^\s*\/\/\s*@ts-nocheck/m.test(t.text.slice(0, firstStatement(t)))) return out;
     t.walk(t.root, (n) => {
       const kind = t.kind[n]!;
       if (kind === K.PropertyAccessExpression) this.checkProperty(f, n, out);
       else if (kind === K.CallExpression || kind === K.NewExpression) this.checkCall(f, n, out);
     });
-    return out;
+    // As tsc: `// @ts-expect-error` and `// @ts-ignore` silence the errors on the line after them.
+    if (this.options.suppress === false) return out;
+    const silenced = suppressedLines(t.text);
+    return silenced.size ? out.filter((d) => !silenced.has(lineOf(t.text, d.start))) : out;
   }
 
   // -------------------------------------------------------------------------------------------------------------
@@ -134,17 +202,18 @@ class Checker {
     const name = t.next[object]!;
     if (t.kind[name] !== K.Identifier) return;
     const type = this.typeOfExpr(f, object);
-    if (type.k !== 'object') return;
+    const props = this.propsOf(type);
+    if (!props || props.open) return;
     const key = t.textOf(name);
-    const m = this.membersOf(type);
-    if (m.open || m.byName.has(key) || OBJECT_MEMBERS.has(key)) return;
+    if (props.names.has(key) || OBJECT_MEMBERS.has(key)) return;
     const start = t.start[name]!;
     const length = t.end[name]! - start;
-    const suggestion = spellingSuggestion(key, [...m.byName.keys()]);
+    const shown = this.nameOf(type);
+    const suggestion = spellingSuggestion(key, [...props.names.keys()]);
     if (suggestion !== undefined) {
-      out.push({ file: f.path, start, length, code: 2551, message: `Property '${key}' does not exist on type '${type.name}'. Did you mean '${suggestion}'?` });
+      out.push({ file: f.path, start, length, code: 2551, message: `Property '${key}' does not exist on type '${shown}'. Did you mean '${suggestion}'?` });
     } else {
-      out.push({ file: f.path, start, length, code: 2339, message: `Property '${key}' does not exist on type '${type.name}'.` });
+      out.push({ file: f.path, start, length, code: 2339, message: `Property '${key}' does not exist on type '${shown}'.` });
     }
   }
 
@@ -153,24 +222,25 @@ class Checker {
     const callee = t.first[n]!;
     const args = this.argumentsOf(t, n);
     if (args === undefined) return;
-    let signatures: readonly Decl[];
+    let signatures: readonly Sig[];
     if (t.kind[n] === K.NewExpression) {
       const type = this.typeOfExpr(f, callee);
       if (type.k !== 'class') return;
       const ctors = this.constructorsOf(type.decl);
       if (ctors === undefined) return;
-      signatures = ctors;
+      signatures = ctors.map((decl) => ({ decl, env: NO_ENV }));
     } else {
       const type = this.typeOfExpr(f, callee);
       if (type.k !== 'function') return;
       signatures = type.signatures;
     }
-    if (signatures.length !== 1) return; // overloads: not modelled yet
-    const arity = this.arityOf(signatures[0]!);
+    if (signatures.length !== 1) return; // overloads: tsc's errors there are about overload resolution
+    const arity = this.arityOf(signatures[0]!.decl);
     if (!arity) return;
     const got = args.length;
     if (got >= arity.min && (arity.max === null || got <= arity.max)) {
-      this.checkObjectArguments(signatures[0]!, f, args, out);
+      const env = t.kind[n] === K.CallExpression ? this.resolveCall(f, n).env : NO_ENV;
+      this.checkObjectArguments(signatures[0]!, env, f, args, out);
       return;
     }
     // tsc's spans: excess arguments from the first one too many; too few at the callee's name.
@@ -201,22 +271,38 @@ class Checker {
     return out;
   }
 
+  /** A signature's parameters (not `this`). */
+  private paramsOf(sig: Decl): number[] {
+    const t = sig.file.tree;
+    return this.childrenOf(t, sig.node).filter((c) => t.kind[c] === K.Parameter && !(t.kind[t.first[c]!] === K.Identifier && t.textOf(t.first[c]!) === 'this'));
+  }
+
+  /** A parameter's (or property's) type annotation. */
+  private annotationOf(t: Tree, n: number): number | undefined {
+    return this.childrenOf(t, n).slice(1).find((c) => isTypeNode(t.kind[c]!));
+  }
+
   /**
    * Excess properties of object literals passed where a known object type is expected: tsc's 2353, or 2561 with its
    * spelling suggestion. tsc reports one argument error per call (the first argument that fails) and one excess
    * property per object literal (the first), so the checker does too.
    */
-  private checkObjectArguments(sig: Decl, f: SourceInfo, args: readonly number[], out: Diagnostic[]): void {
-    const st = sig.file.tree;
-    const params = this.childrenOf(st, sig.node).filter((c) => st.kind[c] === K.Parameter && !(st.kind[st.first[c]!] === K.Identifier && st.textOf(st.first[c]!) === 'this'));
+  private checkObjectArguments(sig: Sig, env: Env, f: SourceInfo, args: readonly number[], out: Diagnostic[]): void {
+    const st = sig.decl.file.tree;
+    const params = this.paramsOf(sig.decl);
+    const own = this.typeParamsOf(sig.decl);
     for (const [i, arg] of args.entries()) {
       const param = params[i];
       if (param === undefined || st.flags[param]! & F.Rest) return;
       if (f.tree.kind[arg] !== K.ObjectLiteralExpression) continue;
-      const typeNode = this.childrenOf(st, param).slice(1).find((c) => isTypeNode(st.kind[c]!));
+      const typeNode = this.annotationOf(st, param);
       if (typeNode === undefined) continue;
-      const target = this.typeOfNode(sig.file, typeNode);
-      if (target.k !== 'object') continue;
+      // A parameter typed by the signature's own type parameter takes the argument's type: nothing is excess.
+      if (st.kind[typeNode] === K.TypeReference) {
+        const d = this.declarationOf(sig.decl.file, st.first[typeNode]!);
+        if (d && own.has(keyOf(d))) continue;
+      }
+      const target = this.typeOfNode(sig.decl.file, typeNode, env);
       const d = this.excessProperty(f, arg, target);
       if (d) {
         out.push(d);
@@ -226,34 +312,33 @@ class Checker {
   }
 
   /** The first property of an object literal that `target` doesn't have, nested literals included. */
-  private excessProperty(f: SourceInfo, literal: number, target: Extract<Type, { k: 'object' }>): Diagnostic | undefined {
+  private excessProperty(f: SourceInfo, literal: number, target: Type): Diagnostic | undefined {
     const t = f.tree;
-    const m = this.membersOf(target);
-    if (m.open) return undefined;
-    const props = this.childrenOf(t, literal);
+    const props = this.propsOf(target);
+    if (!props || props.open) return undefined;
+    const children = this.childrenOf(t, literal);
     // A spread or a computed name: which properties the literal has isn't known here.
-    if (props.some((p) => t.kind[p] === K.SpreadAssignment || t.kind[t.first[p]!] === K.ComputedPropertyName)) return undefined;
-    const nested: [number, Extract<Type, { k: 'object' }>][] = [];
-    for (const p of props) {
+    if (children.some((p) => t.kind[p] === K.SpreadAssignment || t.kind[t.first[p]!] === K.ComputedPropertyName)) return undefined;
+    const nested: [number, Type][] = [];
+    for (const p of children) {
       const name = t.first[p]!;
       const nameKind = t.kind[name]!;
       if (nameKind !== K.Identifier && nameKind !== K.StringLiteral) return undefined;
       const key = nameKind === K.StringLiteral ? t.textOf(name).slice(1, -1) : t.textOf(name);
-      const decls = m.byName.get(key);
-      if (!decls) {
+      const member = props.names.get(key);
+      if (!member) {
         if (OBJECT_MEMBERS.has(key)) return undefined;
         const start = t.start[name]!;
         const length = t.end[name]! - start;
-        const suggestion = spellingSuggestion(key, [...m.byName.keys()]);
+        const shown = this.nameOf(target);
+        const suggestion = spellingSuggestion(key, [...props.names.keys()]);
         return suggestion !== undefined
-          ? { file: f.path, start, length, code: 2561, message: `Object literal may only specify known properties, but '${key}' does not exist in type '${target.name}'. Did you mean to write '${suggestion}'?` }
-          : { file: f.path, start, length, code: 2353, message: `Object literal may only specify known properties, and '${key}' does not exist in type '${target.name}'.` };
+          ? { file: f.path, start, length, code: 2561, message: `Object literal may only specify known properties, but '${key}' does not exist in type '${shown}'. Did you mean to write '${suggestion}'?` }
+          : { file: f.path, start, length, code: 2353, message: `Object literal may only specify known properties, and '${key}' does not exist in type '${shown}'.` };
       }
       if (t.kind[p] === K.PropertyAssignment) {
         const value = t.next[name]!;
-        if (t.kind[value] !== K.ObjectLiteralExpression) continue;
-        const type = this.memberOfDecls(decls);
-        if (type.k === 'object') nested.push([value, type]);
+        if (t.kind[value] === K.ObjectLiteralExpression) nested.push([value, member()]);
       }
     }
     for (const [value, type] of nested) {
@@ -269,10 +354,7 @@ class Checker {
     let min = 0;
     let max: number | null = 0;
     let optional = false;
-    for (let c = t.first[sig.node]!; c; c = t.next[c]!) {
-      if (t.kind[c] !== K.Parameter) continue;
-      const name = t.first[c]!;
-      if (t.kind[name] === K.Identifier && t.textOf(name) === 'this') continue;
+    for (const c of this.paramsOf(sig)) {
       if (t.flags[c]! & F.Rest) {
         max = null;
         continue;
@@ -290,6 +372,21 @@ class Checker {
   // Expressions.
 
   private typeOfExpr(f: SourceInfo, n: number): Type {
+    const key = `${f.path}:${n}`;
+    const known = this.exprTypes.get(key);
+    if (known) return known;
+    if (this.typing.has(key)) return UNKNOWN;
+    this.typing.add(key);
+    try {
+      const type = this.typeOfExprInner(f, n);
+      this.exprTypes.set(key, type);
+      return type;
+    } finally {
+      this.typing.delete(key);
+    }
+  }
+
+  private typeOfExprInner(f: SourceInfo, n: number): Type {
     const t = f.tree;
     switch (t.kind[n]) {
       case K.Identifier:
@@ -301,21 +398,13 @@ class Checker {
       case K.AsExpression:
       case K.TypeAssertionExpression: {
         const type = this.childrenOf(t, n).find((c) => isTypeNode(t.kind[c]!));
-        return type ? this.typeOfNode(f, type) : UNKNOWN;
+        return type ? this.typeOfNode(f, type, NO_ENV) : UNKNOWN;
       }
-      case K.CallExpression: {
-        const callee = this.typeOfExpr(f, t.first[n]!);
-        if (callee.k !== 'function') return UNKNOWN;
-        // Overloads: the call has their type when they all return the same class or interface.
-        const results = callee.signatures.map((s) => this.returnOf(s));
-        const first = results[0]!;
-        if (first.k !== 'object') return results.length === 1 ? first : UNKNOWN;
-        const key = (r: Type) => (r.k === 'object' ? r.decls.map((d) => `${d.file.path}:${d.node}`).join('|') : '');
-        return results.every((r) => key(r) === key(first)) ? first : UNKNOWN;
-      }
+      case K.CallExpression:
+        return this.resolveCall(f, n).type;
       case K.NewExpression: {
         const callee = this.typeOfExpr(f, t.first[n]!);
-        return callee.k === 'class' ? this.instanceOf(callee.decl) : UNKNOWN;
+        return callee.k === 'class' ? this.instanceOf(callee.decl, []) : UNKNOWN;
       }
       case K.PropertyAccessExpression: {
         const object = this.typeOfExpr(f, t.first[n]!);
@@ -326,10 +415,13 @@ class Checker {
       case K.ArrowFunction:
       case K.FunctionExpression:
         // Its own node is its signature: parameters, then the return annotation, if any.
-        return { k: 'function', signatures: [{ file: f, node: n }] };
+        return { k: 'function', signatures: [{ decl: { file: f, node: n }, env: NO_ENV }] };
+      case K.ObjectLiteralExpression:
+        return this.objectLiteral(f, n);
       case K.StringLiteral:
-      case K.NumericLiteral:
       case K.NoSubstitutionTemplateLiteral:
+        return keys([t.textOf(n).slice(1, -1)]);
+      case K.NumericLiteral:
       case K.TemplateExpression:
       case K.TrueKeyword:
       case K.FalseKeyword:
@@ -338,6 +430,23 @@ class Checker {
       default:
         return UNKNOWN;
     }
+  }
+
+  /** An object literal's properties, or unknown with a spread or a computed name. */
+  private objectLiteral(f: SourceInfo, n: number): Type {
+    const t = f.tree;
+    const props = new Map<string, () => Type>();
+    for (const p of this.childrenOf(t, n)) {
+      const name = t.first[p]!;
+      const kind = t.kind[p]!;
+      if (kind === K.SpreadAssignment || t.kind[name] === K.ComputedPropertyName) return UNKNOWN;
+      const key = t.kind[name] === K.StringLiteral ? t.textOf(name).slice(1, -1) : t.textOf(name);
+      if (kind === K.PropertyAssignment) props.set(key, () => this.typeOfExpr(f, t.next[name]!));
+      else if (kind === K.ShorthandPropertyAssignment) props.set(key, () => this.valueOfName(f, name));
+      else if (kind === K.MethodDeclaration) props.set(key, () => ({ k: 'function', signatures: [{ decl: { file: f, node: p }, env: NO_ENV }] }));
+      else props.set(key, () => UNKNOWN); // accessors
+    }
+    return { k: 'record', props, name: t.textOf(n).replace(/\s+/g, ' ') };
   }
 
   /** The type of a value a name refers to. */
@@ -355,7 +464,7 @@ class Checker {
   }
 
   private valueOfDecl(d: Decl): Type {
-    const key = `${d.file.path}:${d.node}`;
+    const key = `value:${keyOf(d)}`;
     if (this.typing.has(key)) return UNKNOWN; // a cycle: `const a = b; const b = a;`
     this.typing.add(key);
     try {
@@ -371,24 +480,48 @@ class Checker {
       case K.ClassDeclaration:
         return { k: 'class', decl: d };
       case K.FunctionDeclaration:
-        return { k: 'function', signatures: this.overloads(d) };
+        return { k: 'function', signatures: this.overloads(d).map((decl) => ({ decl, env: NO_ENV })) };
       case K.VariableDeclaration:
       case K.Parameter: {
         const parts = this.childrenOf(t, d.node);
         if (t.kind[parts[0]!] !== K.Identifier) return UNKNOWN; // a destructuring pattern
         const type = parts.slice(1).find((c) => isTypeNode(t.kind[c]!));
-        if (type) return this.typeOfNode(d.file, type);
+        if (type) return this.typeOfNode(d.file, type, NO_ENV);
+        if (t.kind[d.node] === K.Parameter) return this.contextualParameter(d);
         // A `const` takes its initializer's type; `let` and `var` would widen literals (primitives here anyway).
         const init = parts.slice(1).find((c) => !isTypeNode(t.kind[c]!));
-        return init && t.kind[d.node] === K.VariableDeclaration ? this.typeOfExpr(d.file, init) : UNKNOWN;
+        return init ? this.typeOfExpr(d.file, init) : UNKNOWN;
       }
       case K.ImportSpecifier:
       case K.ImportClause:
       case K.NamespaceImport:
-        return this.imported(d, 'value');
+        return this.imported(d, 'value', []);
       default:
         return UNKNOWN;
     }
+  }
+
+  /**
+   * An arrow function's parameter without an annotation, typed by where the function is passed: the parameter type
+   * of the call it is an argument of (resolving that call records it).
+   */
+  private contextualParameter(d: Decl): Type {
+    const key = keyOf(d);
+    const known = this.contextual.get(key);
+    if (known) return known;
+    const b = d.file.bindings;
+    const t = d.file.tree;
+    const fn = b.parent[d.node]!;
+    if (t.kind[fn] !== K.ArrowFunction && t.kind[fn] !== K.FunctionExpression) return UNKNOWN;
+    let at = fn;
+    let call = b.parent[at]!;
+    while (t.kind[call] === K.ParenthesizedExpression) {
+      at = call;
+      call = b.parent[call]!;
+    }
+    if (t.kind[call] !== K.CallExpression || t.first[call] === at) return UNKNOWN;
+    this.resolveCall(d.file, call);
+    return this.contextual.get(key) ?? UNKNOWN;
   }
 
   /** The declarations a function's name has that callers can call: its overloads, or the one with a body. */
@@ -402,24 +535,205 @@ class Checker {
   }
 
   // -------------------------------------------------------------------------------------------------------------
+  // Calls: the signature, the type arguments inferred from the arguments, and the arrow functions' parameters typed.
+
+  private resolveCall(f: SourceInfo, call: number): Resolved {
+    const key = `${f.path}:${call}`;
+    const known = this.calls.get(key);
+    if (known) return known;
+    const none: Resolved = { sig: undefined, env: NO_ENV, type: UNKNOWN };
+    if (this.typing.has(`call:${key}`)) return none;
+    this.typing.add(`call:${key}`);
+    try {
+      const r = this.resolveCallInner(f, call) ?? none;
+      this.calls.set(key, r);
+      return r;
+    } finally {
+      this.typing.delete(`call:${key}`);
+    }
+  }
+
+  private resolveCallInner(f: SourceInfo, call: number): Resolved | undefined {
+    const t = f.tree;
+    const callee = this.typeOfExpr(f, t.first[call]!);
+    if (callee.k !== 'function') return undefined;
+    const args = this.argumentsOf(t, call);
+    if (!args) return undefined;
+    const sig = callee.signatures.length === 1 ? callee.signatures[0]! : this.chooseOverload(f, callee.signatures, args);
+    if (!sig) return undefined;
+    const st = sig.decl.file.tree;
+    const params = this.paramsOf(sig.decl);
+    const vars = this.typeParamsOf(sig.decl);
+    const inferred = new Map<string, Type>();
+    const isFunction = (a: number) => t.kind[a] === K.ArrowFunction || t.kind[a] === K.FunctionExpression;
+    // Arguments that aren't functions first, then functions, as tsc infers from context-sensitive arguments last.
+    for (const [i, arg] of args.entries()) {
+      const param = params[i];
+      if (param === undefined || st.flags[param]! & F.Rest || isFunction(arg)) continue;
+      const node = this.annotationOf(st, param);
+      if (node !== undefined) this.unify(sig.decl.file, node, this.typeOfExpr(f, arg), vars, inferred);
+    }
+    let env = this.withInferred(sig, vars, inferred);
+    for (const [i, arg] of args.entries()) {
+      const param = params[i];
+      if (param === undefined || st.flags[param]! & F.Rest || !isFunction(arg)) continue;
+      let node = this.annotationOf(st, param);
+      while (node !== undefined && st.kind[node] === K.ParenthesizedType) node = st.first[node]!;
+      if (node === undefined || st.kind[node] !== K.FunctionType) continue;
+      const expected = this.paramsOf({ file: sig.decl.file, node });
+      for (const [j, p] of this.paramsOf({ file: f, node: arg }).entries()) {
+        const e = expected[j];
+        if (e === undefined || this.annotationOf(t, p) !== undefined || t.kind[t.first[p]!] !== K.Identifier) continue;
+        const type = this.annotationOf(st, e);
+        if (type !== undefined) this.contextual.set(`${f.path}:${p}`, this.typeOfNode(sig.decl.file, type, env));
+      }
+      // The return type: an expression body's type, unified with the expected function's return type.
+      const body = t.children(arg).at(-1)!;
+      const ret = this.returnNodeOf({ file: sig.decl.file, node });
+      if (ret !== undefined && t.kind[body] !== K.Block && !isTypeNode(t.kind[body]!)) {
+        this.unify(sig.decl.file, ret, this.typeOfExpr(f, body), vars, inferred);
+        env = this.withInferred(sig, vars, inferred);
+      }
+    }
+    return { sig, env, type: this.returnOf({ decl: sig.decl, env }) };
+  }
+
+  /** The signature's env with its own type parameters: inferred, else their defaults, else unknown. */
+  private withInferred(sig: Sig, vars: ReadonlySet<string>, inferred: ReadonlyMap<string, Type>): Env {
+    const env = new Map(sig.env);
+    const t = sig.decl.file.tree;
+    for (const tp of this.childrenOf(t, sig.decl.node).filter((c) => t.kind[c] === K.TypeParameter)) {
+      const key = `${sig.decl.file.path}:${tp}`;
+      if (!vars.has(key)) continue;
+      const def = this.defaultOf(t, tp);
+      env.set(key, inferred.get(key) ?? (def !== undefined ? this.typeOfNode(sig.decl.file, def, env) : UNKNOWN));
+    }
+    return env;
+  }
+
+  /** A signature's (or class's, alias's) own type parameters, by key. */
+  private typeParamsOf(d: Decl): Set<string> {
+    const t = d.file.tree;
+    return new Set(this.childrenOf(t, d.node).filter((c) => t.kind[c] === K.TypeParameter).map((c) => `${d.file.path}:${c}`));
+  }
+
+  /** A type parameter's default (`T = X`), or undefined. */
+  private defaultOf(t: Tree, tp: number): number | undefined {
+    const types = this.childrenOf(t, tp).slice(1);
+    if (!types.length) return undefined;
+    // A constraint and a default; or one of them, told apart by the `=` before it.
+    if (types.length === 2) return types[1];
+    const before = t.text.slice(t.end[t.first[tp]!]!, t.start[types[0]!]!);
+    return before.includes('=') ? types[0] : undefined;
+  }
+
+  /** The first overload whose parameters could take the arguments, when it is the only one. */
+  private chooseOverload(f: SourceInfo, sigs: readonly Sig[], args: readonly number[]): Sig | undefined {
+    const fits = sigs.filter((sig) => {
+      const arity = this.arityOf(sig.decl);
+      if (!arity || args.length < arity.min || (arity.max !== null && args.length > arity.max)) return false;
+      const st = sig.decl.file.tree;
+      const params = this.paramsOf(sig.decl);
+      return args.every((arg, i) => {
+        const p = params[i];
+        const node = p === undefined ? undefined : this.annotationOf(st, p);
+        if (node === undefined) return true;
+        const a = this.typeOfExpr(f, arg);
+        const objectLike = a.k === 'object' || a.k === 'record' || a.k === 'intersection' || a.k === 'function';
+        if (PRIMITIVE_KINDS.has(st.kind[node]!)) return !objectLike;
+        if (st.kind[node] === K.TypeReference) {
+          const d = this.declarationOf(sig.decl.file, st.first[node]!);
+          const target = d ? this.targetOf(d) : undefined;
+          const declares = target && (target.file.tree.kind[target.node] === K.ClassDeclaration || target.file.tree.kind[target.node] === K.InterfaceDeclaration);
+          if (declares) return a.k !== 'primitive' && a.k !== 'keys';
+        }
+        return true;
+      });
+    });
+    return fits.length === 1 ? fits[0] : undefined;
+  }
+
+  /**
+   * Infer the type parameters in `vars` from a parameter type (`node`, in `file`) and an argument's type: a type
+   * parameter takes the argument's type; a class or interface takes its type arguments from the same class's.
+   */
+  private unify(file: SourceInfo, node: number, arg: Type, vars: ReadonlySet<string>, inferred: Map<string, Type>, depth = 0): void {
+    if (arg.k === 'unknown' || depth > 8) return;
+    const t = file.tree;
+    if (t.kind[node] === K.ParenthesizedType) return this.unify(file, t.first[node]!, arg, vars, inferred, depth + 1);
+    if (t.kind[node] !== K.TypeReference || t.kind[t.first[node]!] !== K.Identifier) return;
+    const d = this.declarationOf(file, t.first[node]!);
+    if (!d) return;
+    const key = keyOf(d);
+    if (t.kind[d.node] === K.TypeParameter) {
+      if (vars.has(key) && !inferred.has(key)) inferred.set(key, arg);
+      return;
+    }
+    const target = this.targetOf(d);
+    if (!target) return;
+    const tt = target.file.tree;
+    const argNodes = this.childrenOf(t, node).slice(1);
+    if (!argNodes.length) return;
+    const params = this.childrenOf(tt, target.node).filter((c) => tt.kind[c] === K.TypeParameter);
+    const candidates = arg.k === 'intersection' ? arg.parts : [arg];
+    for (const c of candidates) {
+      if (c.k === 'object' && c.decls.some((x) => x.file === target.file && x.node === target.node)) {
+        params.forEach((p, i) => argNodes[i] !== undefined && this.unify(file, argNodes[i]!, c.env.get(`${target.file.path}:${p}`) ?? UNKNOWN, vars, inferred, depth + 1));
+        return;
+      }
+    }
+    // An interface or type literal from an object literal: each member's type, with the interface's type
+    // parameters standing for the reference's type arguments (`JoinOptions<Px>` from `{ prefix: 'c_' }`).
+    if (arg.k === 'record' && tt.kind[target.node] === K.InterfaceDeclaration) {
+      const aliases = new Map<string, number | undefined>(params.map((p, i) => [`${target.file.path}:${p}`, argNodes[i]]));
+      for (const m of this.childrenOf(tt, target.node)) {
+        if (tt.kind[m] !== K.PropertySignature) continue;
+        const prop = arg.props.get(tt.textOf(tt.first[m]!));
+        const mt = this.annotationOf(tt, m);
+        if (!prop || mt === undefined || tt.kind[mt] !== K.TypeReference) continue;
+        const md = this.declarationOf(target.file, tt.first[mt]!);
+        const argNode = md ? aliases.get(keyOf(md)) : undefined;
+        if (argNode !== undefined) this.unify(file, argNode, prop(), vars, inferred, depth + 1);
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------------------------------------------
   // Imports and exports.
 
   /** What an import declaration's name is, in the module it comes from. */
-  private imported(d: Decl, meaning: 'value' | 'type'): Type {
+  private imported(d: Decl, meaning: 'value' | 'type', args: readonly Type[]): Type {
+    const t = d.file.tree;
+    if (t.kind[d.node] === K.NamespaceImport) {
+      const file = this.importedFile(d);
+      return file && meaning === 'value' ? { k: 'namespace', file } : UNKNOWN;
+    }
+    if (t.kind[d.node] === K.ImportClause) return UNKNOWN; // a default import: not modelled
+    const exported = this.targetOf(d);
+    if (!exported) return UNKNOWN;
+    return meaning === 'value' ? this.valueOfDecl(exported) : this.typeOfDecl(exported, args, NO_ENV);
+  }
+
+  /** The module an import declaration reads. */
+  private importedFile(d: Decl): SourceInfo | undefined {
     const t = d.file.tree;
     let declaration = d.node;
     while (declaration && t.kind[declaration] !== K.ImportDeclaration) declaration = d.file.bindings.parent[declaration]!;
-    if (!declaration) return UNKNOWN;
+    if (!declaration) return undefined;
     const spec = this.childrenOf(t, declaration).find((c) => t.kind[c] === K.StringLiteral);
     const target = spec ? this.resolve(t.textOf(spec).slice(1, -1), d.file.path) : undefined;
-    const file = target ? this.source(target) : undefined;
-    if (!file) return UNKNOWN;
-    if (t.kind[d.node] === K.NamespaceImport) return meaning === 'value' ? { k: 'namespace', file } : UNKNOWN;
-    if (t.kind[d.node] === K.ImportClause) return UNKNOWN; // a default import: not modelled
+    return target ? this.source(target) : undefined;
+  }
+
+  /** The declaration an import specifier names, in its module (following re-exports); others as they are. */
+  private targetOf(d: Decl): Decl | undefined {
+    const t = d.file.tree;
+    if (t.kind[d.node] !== K.ImportSpecifier) return d;
+    const file = this.importedFile(d);
+    if (!file) return undefined;
     const ids = this.childrenOf(t, d.node);
-    const exported = this.exportOf(file, t.textOf(ids[0]!), new Set());
-    if (!exported) return UNKNOWN;
-    return meaning === 'value' ? this.valueOfDecl(exported) : this.typeOfDecl(exported);
+    const found = this.exportOf(file, t.textOf(ids[0]!), new Set());
+    return found ? this.targetOf(found) : undefined;
   }
 
   /** The declaration a module exports under `name`, following re-exports. */
@@ -512,61 +826,213 @@ class Checker {
   // -------------------------------------------------------------------------------------------------------------
   // Types from declarations.
 
-  /** A type node's type. */
-  private typeOfNode(f: SourceInfo, n: number): Type {
+  /** A type node's type, with `env` giving the type parameters in scope their arguments. */
+  private typeOfNode(f: SourceInfo, n: number, env: Env): Type {
+    if (this.depth > 60) return UNKNOWN; // a recursive type: not modelled
+    this.depth++;
+    try {
+      return this.typeOfNodeInner(f, n, env);
+    } finally {
+      this.depth--;
+    }
+  }
+
+  private typeOfNodeInner(f: SourceInfo, n: number, env: Env): Type {
     const t = f.tree;
     const kind = t.kind[n]!;
     if (PRIMITIVE_KINDS.has(kind)) return PRIMITIVE;
     switch (kind) {
+      case K.LiteralType: {
+        const lit = t.first[n]!;
+        return t.kind[lit] === K.StringLiteral ? keys([t.textOf(lit).slice(1, -1)]) : PRIMITIVE;
+      }
       case K.ParenthesizedType:
-        return this.typeOfNode(f, t.first[n]!);
+        return this.typeOfNode(f, t.first[n]!, env);
       case K.TypeLiteral:
-        return { k: 'object', decls: [{ file: f, node: n }], name: t.textOf(n) };
+        return { k: 'object', decls: [{ file: f, node: n }], name: t.textOf(n), env };
       case K.FunctionType:
-        return { k: 'function', signatures: [{ file: f, node: n }] };
+        return { k: 'function', signatures: [{ decl: { file: f, node: n }, env }] };
       case K.TypeReference: {
         const name = t.first[n]!;
         if (t.kind[name] !== K.Identifier) return UNKNOWN; // a qualified name: not modelled
+        const args = this.childrenOf(t, n).slice(1).map((a) => this.typeOfNode(f, a, env));
         const decl = this.declarationOf(f, name);
-        return decl ? this.typeOfDecl(decl) : UNKNOWN;
+        return decl ? this.typeOfDecl(decl, args, env) : this.builtin(t.textOf(name), args);
       }
+      case K.UnionType: {
+        const parts = this.childrenOf(t, n).map((c) => this.typeOfNode(f, c, env));
+        if (parts.every((p) => p.k === 'keys')) return keys(parts.flatMap((p) => [...(p as Extract<Type, { k: 'keys' }>).names]));
+        return UNKNOWN;
+      }
+      case K.IntersectionType: {
+        const parts = this.childrenOf(t, n).map((c) => this.typeOfNode(f, c, env));
+        // `keyof T & string`: the keys (names are strings already).
+        const named = parts.filter((p) => p.k === 'keys');
+        if (named.length === 1 && parts.every((p) => p.k === 'keys' || p.k === 'primitive')) return named[0]!;
+        return { k: 'intersection', parts, name: t.textOf(n) };
+      }
+      case K.TypeOperator: {
+        if (!t.textOf(n).startsWith('keyof')) return UNKNOWN; // readonly, unique: not modelled
+        const names = this.keysOf(this.typeOfNode(f, t.first[n]!, env));
+        return names ? keys(names) : UNKNOWN;
+      }
+      case K.MappedType:
+        return this.mapped(f, n, env);
+      case K.TemplateLiteralType:
+        return this.template(f, n, env);
       default:
         return UNKNOWN;
     }
   }
 
-  /** The type a declaration declares (a class's instances, an interface, a type alias's type). */
-  private typeOfDecl(d: Decl): Type {
+  /** The type a declaration declares (a class's instances, an interface, a type alias's type), for `args`. */
+  private typeOfDecl(d: Decl, args: readonly Type[], env: Env): Type {
     const t = d.file.tree;
     switch (t.kind[d.node]) {
+      case K.TypeParameter:
+        return env.get(keyOf(d)) ?? UNKNOWN;
       case K.ClassDeclaration:
       case K.InterfaceDeclaration:
-        return this.instanceOf(d);
+        return this.instanceOf(d, args);
       case K.TypeAliasDeclaration: {
         const parts = this.childrenOf(t, d.node);
-        if (parts.some((c) => t.kind[c] === K.TypeParameter)) return UNKNOWN; // a generic alias: its arguments matter
-        const type = parts.slice(1).find((c) => isTypeNode(t.kind[c]!));
-        return type ? this.typeOfNode(d.file, type) : UNKNOWN;
+        const aliasEnv = this.envFor(d, args);
+        const type = parts.slice(1).reverse().find((c) => isTypeNode(t.kind[c]!) && t.kind[c] !== K.TypeParameter);
+        return type !== undefined ? this.typeOfNode(d.file, type, aliasEnv) : UNKNOWN;
       }
       case K.ImportSpecifier:
-        return this.imported(d, 'type');
+        return this.imported(d, 'type', args);
       default:
-        return UNKNOWN; // a type parameter, or anything else
+        return UNKNOWN;
     }
   }
 
-  /** A class's or interface's instance type, with every declaration of its name (interfaces merge). */
-  private instanceOf(d: Decl): Type {
+  /** The env a generic declaration's type parameters get from `args` (and their defaults). */
+  private envFor(d: Decl, args: readonly Type[]): Env {
+    const t = d.file.tree;
+    const env = new Map<string, Type>();
+    this.childrenOf(t, d.node)
+      .filter((c) => t.kind[c] === K.TypeParameter)
+      .forEach((tp, i) => {
+        const def = this.defaultOf(t, tp);
+        env.set(`${d.file.path}:${tp}`, args[i] ?? (def !== undefined ? this.typeOfNode(d.file, def, env) : UNKNOWN));
+      });
+    return env;
+  }
+
+  /** The built-in generic types that only rearrange keys; anything else is unknown. */
+  private builtin(name: string, args: readonly Type[]): Type {
+    const [a, b] = args;
+    switch (name) {
+      case 'Readonly':
+      case 'Partial':
+      case 'Required':
+        return a ?? UNKNOWN;
+      case 'Omit':
+      case 'Pick': {
+        const props = a ? this.propsOf(a) : undefined;
+        if (!props || props.open || b?.k !== 'keys') return UNKNOWN;
+        const kept = [...props.names].filter(([k]) => b.names.has(k) === (name === 'Pick'));
+        return { k: 'record', props: new Map(kept), name: `${name}<…>` };
+      }
+      case 'Record':
+        return a?.k === 'keys' ? { k: 'record', props: new Map([...a.names].map((k) => [k, () => b ?? UNKNOWN])), name: 'Record<…>' } : UNKNOWN;
+      default:
+        return UNKNOWN;
+    }
+  }
+
+  /** A mapped type over known keys: `{ [K in keyof T]: … }`, renamed by an `as` clause. */
+  private mapped(f: SourceInfo, n: number, env: Env): Type {
+    const t = f.tree;
+    const [tp, ...types] = this.childrenOf(t, n);
+    const constraint = this.childrenOf(t, tp!)[1];
+    if (constraint === undefined || !types.length) return UNKNOWN;
+    const over = this.typeOfNode(f, constraint, env);
+    if (over.k !== 'keys') return UNKNOWN;
+    const as = types.length === 2 ? types[0] : undefined;
+    const value = types[types.length - 1]!;
+    const props = new Map<string, () => Type>();
+    const k = `${f.path}:${tp}`;
+    for (const name of over.names) {
+      const keyEnv = new Map(env).set(k, keys([name]));
+      let key = name;
+      if (as !== undefined) {
+        const renamed = this.typeOfNode(f, as, keyEnv);
+        if (renamed.k !== 'keys' || renamed.names.size !== 1) return UNKNOWN;
+        key = [...renamed.names][0]!;
+      }
+      props.set(key, () => this.typeOfNode(f, value, keyEnv));
+    }
+    return { k: 'record', props, name: t.textOf(n) };
+  }
+
+  /** A template literal type whose holes are single string literals. */
+  private template(f: SourceInfo, n: number, env: Env): Type {
+    const t = f.tree;
+    const [head, ...spans] = this.childrenOf(t, n);
+    let text = t.textOf(head!).slice(1, -2);
+    for (const span of spans) {
+      const [type, literal] = this.childrenOf(t, span);
+      const part = this.typeOfNode(f, type!, env);
+      if (part.k !== 'keys' || part.names.size !== 1) return UNKNOWN;
+      const lit = t.textOf(literal!);
+      text += [...part.names][0]! + (lit.endsWith('`') ? lit.slice(1, -1) : lit.slice(1, -2));
+    }
+    return keys([text]);
+  }
+
+  /** A class's or interface's instance type, for `args`, with every declaration of its name (interfaces merge). */
+  private instanceOf(d: Decl, args: readonly Type[]): Type {
     const t = d.file.tree;
     const name = t.first[d.node]!;
     const symbol = d.file.bindings.symbol(name);
     const kinds = new Set([K.ClassDeclaration, K.InterfaceDeclaration]);
     const decls = (symbol?.declarations ?? [name]).map((x) => d.file.bindings.parent[x]!).filter((x) => kinds.has(t.kind[x]!));
-    return { k: 'object', decls: (decls.length ? decls : [d.node]).map((node) => ({ file: d.file, node })), name: t.textOf(name) };
+    return { k: 'object', decls: (decls.length ? decls : [d.node]).map((node) => ({ file: d.file, node })), name: t.textOf(name), env: this.envFor(d, args) };
+  }
+
+  /** A type's properties, or undefined when it has none the checker knows (unknown, primitives, functions). */
+  private propsOf(type: Type): Props | undefined {
+    switch (type.k) {
+      case 'object': {
+        const m = this.membersOf(type);
+        const names = new Map([...m.byName].map(([k, decls]) => [k, () => this.memberOfDecls(decls, type.env)] as const));
+        return { names, open: m.open };
+      }
+      case 'record':
+        return { names: type.props, open: false };
+      case 'intersection': {
+        const names = new Map<string, () => Type>();
+        let open = false;
+        for (const p of type.parts) {
+          const props = this.propsOf(p);
+          if (!props) {
+            open = true;
+            continue;
+          }
+          open ||= props.open;
+          for (const [k, v] of props.names) if (!names.has(k)) names.set(k, v);
+        }
+        return { names, open };
+      }
+      default:
+        return undefined;
+    }
+  }
+
+  /** The names `keyof` a type gives, when they are all known. */
+  private keysOf(type: Type): string[] | undefined {
+    const props = this.propsOf(type);
+    return props && !props.open ? [...props.names.keys()] : undefined;
+  }
+
+  private nameOf(type: Type): string {
+    return type.k === 'object' || type.k === 'record' || type.k === 'intersection' ? type.name : '?';
   }
 
   private membersOf(type: Extract<Type, { k: 'object' }>): Members {
-    const key = type.decls.map((d) => `${d.file.path}:${d.node}`).join('|');
+    const key = type.decls.map((d) => keyOf(d)).join('|');
     let m = this.members.get(key);
     if (m) return m;
     m = { byName: new Map(), open: false };
@@ -621,7 +1087,7 @@ class Checker {
   private typeOfBase(f: SourceInfo, name: number): Type {
     const decl = this.declarationOf(f, name);
     if (!decl) return UNKNOWN;
-    return this.typeOfDecl(decl);
+    return this.typeOfDecl(decl, [], NO_ENV);
   }
 
   /** A member's type as read through `object.name`. */
@@ -634,38 +1100,42 @@ class Checker {
       // Static members.
       const t = object.decl.file.tree;
       const statics = this.childrenOf(t, object.decl.node).filter((c) => t.flags[c]! & F.Static && t.kind[t.first[c]!] === K.Identifier && t.textOf(t.first[c]!) === name);
-      return statics.length ? this.memberOfDecls(statics.map((node) => ({ file: object.decl.file, node }))) : UNKNOWN;
+      return statics.length ? this.memberOfDecls(statics.map((node) => ({ file: object.decl.file, node })), NO_ENV) : UNKNOWN;
     }
-    if (object.k !== 'object') return UNKNOWN;
-    const decls = this.membersOf(object).byName.get(name);
-    return decls ? this.memberOfDecls(decls) : UNKNOWN;
+    return this.propsOf(object)?.names.get(name)?.() ?? UNKNOWN;
   }
 
-  private memberOfDecls(decls: readonly Decl[]): Type {
+  private memberOfDecls(decls: readonly Decl[], env: Env): Type {
     const first = decls[0]!;
     const t = first.file.tree;
     const kind = t.kind[first.node]!;
     if (kind === K.MethodDeclaration || kind === K.MethodSignature) {
       // Overload signatures are the ones without a body (in a class); an interface's are all signatures.
       const sigs = decls.filter((d) => !this.childrenOf(d.file.tree, d.node).some((c) => d.file.tree.kind[c] === K.Block));
-      return { k: 'function', signatures: sigs.length ? sigs : decls };
+      return { k: 'function', signatures: (sigs.length ? sigs : decls).map((decl) => ({ decl, env })) };
     }
     if (kind === K.PropertyDeclaration || kind === K.PropertySignature) {
       if (decls.length !== 1) return UNKNOWN;
-      const type = this.childrenOf(t, first.node).slice(1).find((c) => isTypeNode(t.kind[c]!));
-      return type ? this.typeOfNode(first.file, type) : UNKNOWN;
+      const type = this.annotationOf(t, first.node);
+      return type !== undefined ? this.typeOfNode(first.file, type, env) : UNKNOWN;
     }
     return UNKNOWN; // accessors: not modelled yet
   }
 
-  /** A signature's return type, from its annotation. */
-  private returnOf(sig: Decl): Type {
+  /** A signature's return annotation, or undefined. */
+  private returnNodeOf(sig: Decl): number | undefined {
     const t = sig.file.tree;
     // The return type is the last child that is a type (parameters' types are inside them; a body is a Block).
-    const type = this.childrenOf(t, sig.node).reverse().find((c) => t.kind[c] !== K.Block && t.kind[c] !== K.TypeParameter && isTypeNode(t.kind[c]!));
-    if (!type) return UNKNOWN;
-    if (t.flags[sig.node]! & F.Async) return UNKNOWN; // a Promise: the built-in types aren't modelled yet
-    return this.typeOfNode(sig.file, type);
+    return this.childrenOf(t, sig.node).reverse().find((c) => t.kind[c] !== K.Block && t.kind[c] !== K.TypeParameter && isTypeNode(t.kind[c]!));
+  }
+
+  /** A signature's return type, from its annotation. */
+  private returnOf(sig: Sig): Type {
+    const t = sig.decl.file.tree;
+    const type = this.returnNodeOf(sig.decl);
+    if (type === undefined) return UNKNOWN;
+    if (t.flags[sig.decl.node]! & F.Async) return UNKNOWN; // a Promise: the built-in types aren't modelled yet
+    return this.typeOfNode(sig.decl.file, type, sig.env);
   }
 
   /** A class's constructor signatures, or undefined when they can't be known (an inherited constructor). */
@@ -681,6 +1151,28 @@ class Checker {
   private childrenOf(t: Tree, n: number): number[] {
     return t.children(n);
   }
+}
+
+/** The lines (from 0) that a `// @ts-expect-error` or `// @ts-ignore` comment on the line before silences. */
+export function suppressedLines(text: string): Set<number> {
+  const out = new Set<number>();
+  const lines = text.split('\n');
+  lines.forEach((line, i) => {
+    if (/^\s*\/\/\s*@ts-(expect-error|ignore)\b/.test(line)) out.add(i + 1);
+  });
+  return out;
+}
+
+function lineOf(text: string, offset: number): number {
+  let n = 0;
+  for (let i = text.indexOf('\n'); i !== -1 && i < offset; i = text.indexOf('\n', i + 1)) n++;
+  return n;
+}
+
+/** Where the first statement starts: `@ts-nocheck` counts only before it. */
+function firstStatement(t: Tree): number {
+  const s = t.first[t.root]!;
+  return s ? t.start[s]! : t.text.length;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
-import { K, parse } from 'smaltty';
+import { K, expectations, parse } from 'smaltty';
 import { compareChecks } from './checking.ts';
 
 const lib = `
@@ -146,6 +146,35 @@ test("smaltts's examples as written: no errors from either", () => {
   assert.deepEqual(r.smaltty, []);
 });
 
+test('row callbacks: column names from table() through scan, join prefixes, extend and select', () => {
+  const files = new Map([...smaltts].filter(([f]) => f.startsWith('/src/')));
+  files.set('/user.ts', `import { agg, fn, int, real, scan, table, text } from './src/index.js';
+const orders = table('orders', { id: int().primaryKey(), customerId: int().notNull(), total: real().notNull() });
+const customers = table('customers', { id: int().primaryKey(), name: text() });
+scan(orders).filter((o) => o.totl.gt(5));
+scan(orders).filter((o) => o.total.gt(5)).aggregate((r) => ({ c: r.customerid }), (r) => ({ n: agg.count() }));
+scan(orders).join(scan(customers), (o, c) => o.customerId.eq(c.c_idd), { prefix: 'c_' });
+scan(orders).join(scan(customers), (o, c) => o.customerId.eq(c.c_id), { prefix: 'c_' }).filter((r) => r.c_nam.isNull());
+scan(orders).extend((o) => ({ double: fn.mul(o.total, 2) })).filter((r) => r.doubel.gt(1));
+scan(orders).select((o) => ({ t: o.total })).filter((r) => r.total.gt(1));
+// @ts-expect-error: silenced, as tsc does
+scan(orders).filter((o) => o.nope.gt(5));
+`);
+  const r = compareChecks(files, { roots: ['/user.ts'] });
+  assert.deepEqual(r.falseErrors, []);
+  assert.deepEqual(r.smaltty.map((d) => [d.code, d.message.replace(/ on type '[^']*'/, '')]), [
+    [2551, "Property 'totl' does not exist. Did you mean 'total'?"],
+    [2551, "Property 'customerid' does not exist. Did you mean 'customerId'?"],
+    [2551, "Property 'c_idd' does not exist. Did you mean 'c_id'?"],
+    [2551, "Property 'c_nam' does not exist. Did you mean 'c_name'?"],
+    [2551, "Property 'doubel' does not exist. Did you mean 'double'?"],
+    [2339, "Property 'total' does not exist."],
+  ]);
+  assert.equal(r.caught, r.tsc.length);
+  // The compile-time test behind the @ts-expect-error is found, though silenced.
+  assert.deepEqual(expectations(files, { roots: ['/user.ts'] }).map((e) => [e.line, e.found]), [[11, true]]);
+});
+
 /** Every mutant of an example: one property misspelt, or one call with an argument more or none. */
 function mutants(name: string, text: string): [string, string][] {
   const t = parse(text, { fileName: name });
@@ -188,5 +217,5 @@ test("smaltts's examples mutated: every smaltty error is tsc's; how many of tsc'
   assert.deepEqual(r.falseErrors.map((d) => `${d.file}:${d.start} ${d.code} ${d.message}`).slice(0, 10), []);
   console.log(`# ${roots.length} mutants: tsc ${r.tsc.length} errors of the checked codes, smaltty caught ${r.caught} (${((100 * r.caught) / r.tsc.length).toFixed(0)}%)`);
   // A floor, raised as checking grows: caught share must not fall.
-  assert.ok(r.caught / r.tsc.length >= 0.7, `caught ${r.caught} of ${r.tsc.length}`);
+  assert.ok(r.caught / r.tsc.length >= 0.8, `caught ${r.caught} of ${r.tsc.length}`);
 });
