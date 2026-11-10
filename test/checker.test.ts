@@ -80,6 +80,40 @@ make('a', 2, 3);
   ]);
 });
 
+test('option keys: the first excess property of an object literal argument, nested literals too', () => {
+  const r = run(`import { scan, type Point } from './lib.js';
+const rel = scan('t');
+rel.join(rel, 1, { prefx: 'a' });
+rel.join(rel, 1, { other: 1 });
+rel.join(rel, 1, { prefix: 'a' });
+declare function at(p: Point, o: { at: Point; label?: string }): void;
+at({ x: 1, y: 2 }, { at: { x: 1, yy: 2 } });
+at({ x: 1, y: 2, z: 3 }, { at: { x: 1, y: 2 }, labl: 'a' });
+`);
+  assert.deepEqual(r.falseErrors, []);
+  assert.deepEqual(r.smaltty.map((d) => [d.code, d.message]), [
+    [2561, "Object literal may only specify known properties, but 'prefx' does not exist in type '{ prefix?: string }'. Did you mean to write 'prefix'?"],
+    [2353, "Object literal may only specify known properties, and 'other' does not exist in type '{ prefix?: string }'."],
+    // No suggestion: tsc suggests a name under 3 characters only when it differs by case alone.
+    [2353, "Object literal may only specify known properties, and 'yy' does not exist in type '{ x: number; y: number }'."],
+    [2353, "Object literal may only specify known properties, and 'z' does not exist in type '{ x: number; y: number }'."],
+  ]);
+  assert.equal(r.caught, r.tsc.length);
+});
+
+test('option keys: quiet with a spread, an unknown target, or a wrong argument count', () => {
+  const r = run(`import { scan, type Open } from './lib.js';
+const rel = scan('t');
+const base = { prefix: 'a' };
+rel.join(rel, 1, { ...base, prefx: 'b' });
+declare function open(o: Open): void;
+open({ anything: 1 });
+declare function generic<T>(o: T): void;
+generic({ anything: 1 });
+`);
+  assert.deepEqual(r.smaltty, []);
+});
+
 test('quiet where it cannot know: index signatures, unknown bases, statics, primitives, spreads, overloads', () => {
   const r = run(`import { scan, Rel, type Open, FromUnknown } from './lib.js';
 declare const o: Open;
@@ -123,6 +157,14 @@ function mutants(name: string, text: string): [string, string][] {
       const word = t.textOf(id);
       if (word.length > 2) edit(t.start[id]!, t.end[id]!, word.slice(0, -1), 'short');
       edit(t.start[id]!, t.end[id]!, `${word}Zz`, 'long');
+    } else if (t.kind[n] === K.ObjectLiteralExpression) {
+      for (const p of t.children(n)) {
+        const id = t.first[p]!;
+        if (t.kind[p] !== K.PropertyAssignment || t.kind[id] !== K.Identifier) continue;
+        const word = t.textOf(id);
+        if (word.length > 2) edit(t.start[id]!, t.end[id]!, word.slice(0, -1), 'key');
+        edit(t.start[id]!, t.end[id]!, `${word}Zz`, 'keylong');
+      }
     } else if (t.kind[n] === K.CallExpression) {
       const args = t.children(n).slice(1);
       const close = t.end[n]! - 1;
