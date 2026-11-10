@@ -8,7 +8,8 @@
 //
 // What it reports, by tsc's codes, so the tests compare the two diagnostic for diagnostic:
 // - 2339: a property that does not exist on a known type, and 2551 when tsc would suggest a member's name;
-// - 2554 and 2555: a call or `new` with an argument count no parameter list accepts.
+// - 2554 and 2555: a call or `new` with an argument count no parameter list accepts;
+// - 2353, and 2561 with a suggestion: an object literal's property that the parameter's type doesn't have.
 import { F, K, isTypeNode } from './kinds.js';
 import { bind, type Bindings } from './binder.js';
 import { parse } from './parser.js';
@@ -168,7 +169,10 @@ class Checker {
     const arity = this.arityOf(signatures[0]!);
     if (!arity) return;
     const got = args.length;
-    if (got >= arity.min && (arity.max === null || got <= arity.max)) return;
+    if (got >= arity.min && (arity.max === null || got <= arity.max)) {
+      this.checkObjectArguments(signatures[0]!, f, args, out);
+      return;
+    }
     // tsc's spans: excess arguments from the first one too many; too few at the callee's name.
     let start: number;
     let end: number;
@@ -195,6 +199,68 @@ class Checker {
       out.push(c);
     }
     return out;
+  }
+
+  /**
+   * Excess properties of object literals passed where a known object type is expected: tsc's 2353, or 2561 with its
+   * spelling suggestion. tsc reports one argument error per call (the first argument that fails) and one excess
+   * property per object literal (the first), so the checker does too.
+   */
+  private checkObjectArguments(sig: Decl, f: SourceInfo, args: readonly number[], out: Diagnostic[]): void {
+    const st = sig.file.tree;
+    const params = this.childrenOf(st, sig.node).filter((c) => st.kind[c] === K.Parameter && !(st.kind[st.first[c]!] === K.Identifier && st.textOf(st.first[c]!) === 'this'));
+    for (const [i, arg] of args.entries()) {
+      const param = params[i];
+      if (param === undefined || st.flags[param]! & F.Rest) return;
+      if (f.tree.kind[arg] !== K.ObjectLiteralExpression) continue;
+      const typeNode = this.childrenOf(st, param).slice(1).find((c) => isTypeNode(st.kind[c]!));
+      if (typeNode === undefined) continue;
+      const target = this.typeOfNode(sig.file, typeNode);
+      if (target.k !== 'object') continue;
+      const d = this.excessProperty(f, arg, target);
+      if (d) {
+        out.push(d);
+        return;
+      }
+    }
+  }
+
+  /** The first property of an object literal that `target` doesn't have, nested literals included. */
+  private excessProperty(f: SourceInfo, literal: number, target: Extract<Type, { k: 'object' }>): Diagnostic | undefined {
+    const t = f.tree;
+    const m = this.membersOf(target);
+    if (m.open) return undefined;
+    const props = this.childrenOf(t, literal);
+    // A spread or a computed name: which properties the literal has isn't known here.
+    if (props.some((p) => t.kind[p] === K.SpreadAssignment || t.kind[t.first[p]!] === K.ComputedPropertyName)) return undefined;
+    const nested: [number, Extract<Type, { k: 'object' }>][] = [];
+    for (const p of props) {
+      const name = t.first[p]!;
+      const nameKind = t.kind[name]!;
+      if (nameKind !== K.Identifier && nameKind !== K.StringLiteral) return undefined;
+      const key = nameKind === K.StringLiteral ? t.textOf(name).slice(1, -1) : t.textOf(name);
+      const decls = m.byName.get(key);
+      if (!decls) {
+        if (OBJECT_MEMBERS.has(key)) return undefined;
+        const start = t.start[name]!;
+        const length = t.end[name]! - start;
+        const suggestion = spellingSuggestion(key, [...m.byName.keys()]);
+        return suggestion !== undefined
+          ? { file: f.path, start, length, code: 2561, message: `Object literal may only specify known properties, but '${key}' does not exist in type '${target.name}'. Did you mean to write '${suggestion}'?` }
+          : { file: f.path, start, length, code: 2353, message: `Object literal may only specify known properties, and '${key}' does not exist in type '${target.name}'.` };
+      }
+      if (t.kind[p] === K.PropertyAssignment) {
+        const value = t.next[name]!;
+        if (t.kind[value] !== K.ObjectLiteralExpression) continue;
+        const type = this.memberOfDecls(decls);
+        if (type.k === 'object') nested.push([value, type]);
+      }
+    }
+    for (const [value, type] of nested) {
+      const d = this.excessProperty(f, value, type);
+      if (d) return d;
+    }
+    return undefined;
   }
 
   /** How many arguments a signature takes, or undefined when it can't be told. */
