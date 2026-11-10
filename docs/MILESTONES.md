@@ -78,13 +78,15 @@ Status: in progress. Done so far (`src/checker.ts`, `test/checker.test.ts`):
 
 - Declarations read from the libraries a file imports (relative paths, and bare specifiers through `packages`):
   classes, interfaces (merged), type literals, functions (overloads), arrow functions, re-exports and `export *`.
-- Checks on calls into them: unknown properties (tsc's 2339, and 2551 with tsc's own spelling suggestion), and argument
-  counts (2554, 2555) where there is one signature and no spread.
-- Against tsc on smaltts's reference examples as written (no errors from either) and in 741 mutants (a property
-  misspelt, an argument added or taken away): no false errors, 437 of tsc's 592 errors caught (74%). A check of one
-  example, smaltts's declarations included, takes 5.5 ms (median, warm process; 47 ms the first time).
-- Next: argument types, option keys and literal values; generic types (row types such as `Cols<Row>`); the built-in
-  types; smaltdf.
+- Checks on calls into them: unknown properties (tsc's 2339, and 2551 with tsc's own spelling suggestion), argument
+  counts (2554, 2555) where there is one signature and no spread, and option keys: an object literal's property that
+  the parameter's type doesn't have (2353, and 2561 with a suggestion), nested literals too, one per call as tsc does.
+- Against tsc on smaltts's reference examples as written (no errors from either) and in 982 mutants (a property or an
+  option key misspelt, an argument added or taken away): no false errors, 494 of tsc's 697 errors caught (71%). A check
+  of one example, smaltts's declarations included, takes 5.5 ms (median, warm process; 47 ms the first time).
+- Next: generic types, so row callbacks are checked (`Cols<Row>`: inference from arguments, mapped, conditional and
+  `Omit` types), which is most of what is still missed; then argument types and literal values, the built-in types,
+  and smaltdf.
 
 - Built-in types prepared when smaltty is built (only what users call). smaltdf's and smaltts's `.d.ts` read in the
   page. Checks on calls into smaltdf and smaltts: unknown methods and properties, argument types and counts, option
