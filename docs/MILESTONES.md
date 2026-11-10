@@ -81,12 +81,19 @@ Status: in progress. Done so far (`src/checker.ts`, `test/checker.test.ts`):
 - Checks on calls into them: unknown properties (tsc's 2339, and 2551 with tsc's own spelling suggestion), argument
   counts (2554, 2555) where there is one signature and no spread, and option keys: an object literal's property that
   the parameter's type doesn't have (2353, and 2561 with a suggestion), nested literals too, one per call as tsc does.
-- Against tsc on smaltts's reference examples as written (no errors from either) and in 982 mutants (a property or an
-  option key misspelt, an argument added or taken away): no false errors, 494 of tsc's 697 errors caught (71%). A check
-  of one example, smaltts's declarations included, takes 5.5 ms (median, warm process; 47 ms the first time).
-- Next: generic types, so row callbacks are checked (`Cols<Row>`: inference from arguments, mapped, conditional and
-  `Omit` types), which is most of what is still missed; then argument types and literal values, the built-in types,
-  and smaltdf.
+- Generic types, so row callbacks are checked: type arguments carried by classes, interfaces and aliases; inference
+  from arguments (object literals, then arrow functions' return types) with defaults; arrow functions' parameters typed
+  from where they are passed; mapped types over known keys (with `as` and template literals), `keyof`, intersections,
+  string literal unions, and `Omit`, `Pick`, `Readonly`, `Partial`, `Required` and `Record`; overloads chosen when only
+  one fits. `scan(orders).filter((o) => o.totl…)`, a join's prefixed columns, `extend` and `select` are all checked.
+- `// @ts-expect-error` and `// @ts-ignore` silence the line after them, and `@ts-nocheck` a file, as in tsc;
+  `expectations()` says which `@ts-expect-error` lines the checker finds an error on. smaltts's compile-time tests:
+  1 of 3 found (a column name); the other two need argument types (2345).
+- Against tsc on smaltts's reference examples as written (no errors from either), on all of smaltts's own code (no
+  false errors), and in 982 mutants (a property or an option key misspelt, an argument added or taken away): no false
+  errors, 596 of tsc's 697 errors caught (86%). A check of one example, smaltts's declarations included, takes 5.9 ms
+  (median, warm process; 53 ms the first time).
+- Next: argument types and literal values (2345: `o.total.eq('five')`, sort keys), the built-in types, and smaltdf.
 
 - Built-in types prepared when smaltty is built (only what users call). smaltdf's and smaltts's `.d.ts` read in the
   page. Checks on calls into smaltdf and smaltts: unknown methods and properties, argument types and counts, option
