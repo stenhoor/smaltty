@@ -74,6 +74,18 @@ Milestone 7 starts before milestone 6; milestone 6 goes on independently.
 
 ## 7. Checker trial
 
+Status: in progress. Done so far (`src/checker.ts`, `test/checker.test.ts`):
+
+- Declarations read from the libraries a file imports (relative paths, and bare specifiers through `packages`):
+  classes, interfaces (merged), type literals, functions (overloads), arrow functions, re-exports and `export *`.
+- Checks on calls into them: unknown properties (tsc's 2339, and 2551 with tsc's own spelling suggestion), and argument
+  counts (2554, 2555) where there is one signature and no spread.
+- Against tsc on smaltts's reference examples as written (no errors from either) and in 741 mutants (a property
+  misspelt, an argument added or taken away): no false errors, 437 of tsc's 592 errors caught (74%). A check of one
+  example, smaltts's declarations included, takes 5.5 ms (median, warm process; 47 ms the first time).
+- Next: argument types, option keys and literal values; generic types (row types such as `Cols<Row>`); the built-in
+  types; smaltdf.
+
 - Built-in types prepared when smaltty is built (only what users call). smaltdf's and smaltts's `.d.ts` read in the
   page. Checks on calls into smaltdf and smaltts: unknown methods and properties, argument types and counts, option
   keys, literal values, a missing `await`; for smaltts, also column names and types in row callbacks, which come from

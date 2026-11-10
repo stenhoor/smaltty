@@ -21,13 +21,15 @@ npm run docs:dev       # the docs site (docs/, VitePress); docs:build fails on d
 ## Repo map
 
 - `src/`: `scanner.ts` (tokens on demand), `parser.ts` (TypeScript's grammar, TypeScript's tree shapes), `tree.ts` (the
-  flat tree), `strip.ts` (types to spaces), `binder.ts` (which declaration each name means), `kinds.ts` and `tokens.ts`
+  flat tree), `strip.ts` (types to spaces), `binder.ts` (which declaration each name means), `checker.ts` (types
+  of calls into the libraries a file imports, and tsc's errors on them), `kinds.ts` and `tokens.ts`
   (codes). `test/` imports the package by name, so
   it tests the built output.
 - `test/compare.ts` flattens both trees for comparison; `node test/sweep.ts <paths>` compares the parser with TypeScript
   on any code (run it on the smalt repositories after a parser change). `node test/strip-sweep.ts <paths>` does the same
   for the stripper, against TypeScript's own transpile, and `node test/binding.ts <paths>` for the binder, against
-  TypeScript's checker.
+  TypeScript's checker. `node test/checking.ts <project> [--package=name=path]` compares the checker with tsc on a
+  project's files.
 - `corpus/` the input for tests and benchmarks ([corpus/README.md](corpus/README.md)). `bench/` the harness.
 - `docs/` is the docs site (VitePress, deployed to stenhoor.github.io/smaltty/ from `main` by `.github/workflows/docs.yml`):
   `guide/`, and [DESIGN.md](docs/DESIGN.md), [MILESTONES.md](docs/MILESTONES.md), [BENCHMARKS.md](docs/BENCHMARKS.md).
