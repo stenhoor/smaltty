@@ -30,8 +30,9 @@ a distraction and waits.
 1. **Remove the outside code.** One parser of our own replaces sucrase in smaltui and the TypeScript compiler in
    smaltnb, for stripping and for smaltnb's name analysis.
 2. **Measure it.** Speed and correctness against sucrase and tsc, on the same inputs.
-3. **Then decide how far checking goes**, from that data. The first checking target is smaltdf's API, as smaltui tabs and
-   smaltnb cells use it. Other APIs wait until this is proven.
+3. **Then decide how far checking goes**, from that data. The first checking targets are smaltdf's API, as smaltui
+   tabs and smaltnb cells use it, and smaltts's API (owner's decision, 2026-11-10, below). Other APIs wait until these
+   are proven.
 
 Not a goal: a 1:1 replacement for tsc. The design must not rule one out, but nothing commits to it. If the checker can't
 be made fast, smaltty stays the minimal kit from goal 1.
@@ -45,6 +46,7 @@ Out of scope: checking table and column names against a database schema. That is
 | --- | --- |
 | Language | TypeScript only. No Rust, no WASM. Output is plain ES2022 modules that load in a page without a bundler. |
 | Dependencies | None at run time. sucrase and typescript are allowed as dev dependencies for differential tests and benchmarks only; nothing from them reaches `dist/`. |
+| smaltts | **smaltts's TypeScript tooling is smaltty** (owner's decision, 2026-11-10; smaltts ADR 0023). smaltts has no `typescript` dependency: it strips its reference's examples with smaltty, and smaltty's checker covers calls into smaltts as well as smaltdf. The checker work starts now, before milestone 6 and gate B. smaltts's declarations use mapped, conditional and template-literal types (row types such as `Cols<Row>`), which the checker must evaluate for those calls; checking smaltts's own source is not in scope. |
 | Syntax | Erasable TypeScript only (as `erasableSyntaxOnly` and Node's type stripping): `enum`, `namespace` with values and constructor parameter properties are errors with a clear message, not transforms. Line and column positions are kept. |
 | Built-in types | Our own: a compact declaration set for what users call (Array, Promise, Math, JSON, string methods, …), turned into a type table at build time. Anything not covered is unknown, and unknown is never an error. |
 | Type errors on Run | Warn and run, for now. Severity is part of every diagnostic so that blocking can be added later. |
