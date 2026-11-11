@@ -74,7 +74,7 @@ Milestone 7 starts before milestone 6; milestone 6 goes on independently.
 
 ## 7. Checker trial
 
-Status: done. Done so far (`src/checker.ts`, `test/checker.test.ts`):
+Status: done, 2026-11-11 (`src/checker.ts`, `test/checker.test.ts`):
 
 - Declarations read from the libraries a file imports (relative paths, and bare specifiers through `packages`):
   classes, interfaces (merged), type literals, functions (overloads), arrow functions, re-exports and `export *`.
