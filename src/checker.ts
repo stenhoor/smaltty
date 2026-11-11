@@ -273,7 +273,7 @@ class Checker {
     if (props.names.has(key) || OBJECT_MEMBERS.has(key)) return;
     const start = t.start[name]!;
     const length = t.end[name]! - start;
-    const shown = this.nameOf(type);
+    const shown = this.show(type);
     const suggestion = spellingSuggestion(key, [...props.names.keys()]);
     if (suggestion !== undefined) {
       out.push({ file: f.path, start, length, code: 2551, message: `Property '${key}' does not exist on type '${shown}'. Did you mean '${suggestion}'?` });
@@ -389,8 +389,15 @@ class Checker {
       const type = this.typeOfExpr(f, arg);
       if (this.assignable(type, target) === 'no') {
         const start = t.start[arg]!;
-        const shown = rest ? this.show(target) : st.textOf(typeNode);
-        out.push({ file: f.path, start, length: t.end[arg]! - start, code: 2345, message: `Argument of type '${this.show(type)}' is not assignable to parameter of type '${shown}'.` });
+        // The parameter's type as written (tsc keeps aliases: `Arg<number>`), or its type when written as a type
+        // parameter the call has a type for (`K` of a `Map<string, number>` is `string`).
+        const written = st.textOf(typeNode);
+        const param = st.kind[typeNode] === K.TypeReference ? this.declarationOf(sig.decl.file, st.first[typeNode]!) : undefined;
+        const shown = rest || (param && st.kind[param.node] === K.TypeParameter && this.plain(target)) ? this.show(target) : written;
+        // As tsc: a literal argument is written widened (`string`) unless the parameter's type has literals itself.
+        const literal = (x: Type): boolean => x.k === 'keys' || x.k === 'bool' || (x.k === 'union' && x.parts.some(literal));
+        const argument = literal(target) ? type : widen(type);
+        out.push({ file: f.path, start, length: t.end[arg]! - start, code: 2345, message: `Argument of type '${this.show(argument)}' is not assignable to parameter of type '${shown}'.` });
         return;
       }
     }
@@ -505,10 +512,52 @@ class Checker {
         return type.kind ?? 'unknown';
       case 'union':
         return type.parts.map((p) => this.show(p)).join(' | ') || 'never';
-      case 'array':
-        return `${this.show(type.element)}[]`;
+      case 'array': {
+        const element = this.show(type.element);
+        return type.element.k === 'union' ? `(${element})[]` : `${element}[]`;
+      }
+      case 'object': {
+        // A generic class or interface with its type arguments, as tsc writes them (`Map<string, number>`), where each
+        // can be written plainly; otherwise its name alone.
+        const d = type.decls[0];
+        if (!d) return type.name;
+        const t = d.file.tree;
+        const params = this.childrenOf(t, d.node).filter((c) => t.kind[c] === K.TypeParameter);
+        if (!params.length) return type.name;
+        const args = params.map((p) => type.env.get(`${d.file.path}:${p}`));
+        if (args.some((a) => a === undefined || !this.plain(a))) return type.name;
+        return `${type.name}<${args.map((a) => this.show(a!)).join(', ')}>`;
+      }
       default:
         return this.nameOf(type);
+    }
+  }
+
+  /** A type `show` writes as tsc does: primitives, literals, arrays and unions of them, and plain generic instances. */
+  private plain(type: Type, depth = 0): boolean {
+    if (depth > 4) return false;
+    switch (type.k) {
+      case 'keys':
+      case 'bool':
+        return true;
+      case 'primitive':
+        return type.kind !== undefined;
+      case 'array':
+        return this.plain(type.element, depth + 1);
+      case 'union':
+        return type.parts.length > 0 && type.parts.every((p) => this.plain(p, depth + 1));
+      case 'object': {
+        const d = type.decls[0];
+        if (!d) return false;
+        const t = d.file.tree;
+        const params = this.childrenOf(t, d.node).filter((c) => t.kind[c] === K.TypeParameter);
+        return params.every((p) => {
+          const a = type.env.get(`${d.file.path}:${p}`);
+          return a !== undefined && this.plain(a, depth + 1);
+        });
+      }
+      default:
+        return false;
     }
   }
 
@@ -598,7 +647,7 @@ class Checker {
         if (OBJECT_MEMBERS.has(key)) return undefined;
         const start = t.start[name]!;
         const length = t.end[name]! - start;
-        const shown = this.nameOf(target);
+        const shown = this.show(target);
         const suggestion = spellingSuggestion(key, [...props.names.keys()]);
         return suggestion !== undefined
           ? { file: f.path, start, length, code: 2561, message: `Object literal may only specify known properties, but '${key}' does not exist in type '${shown}'. Did you mean to write '${suggestion}'?` }

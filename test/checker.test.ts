@@ -197,12 +197,12 @@ flag('yes');
   const r = compareChecks(files, { roots: ['/user.ts'] });
   assert.deepEqual(r.falseErrors, []);
   assert.deepEqual(r.smaltty.map((d) => [d.code, d.message.replace(/to (parameter of )?type .*/, '')]), [
-    [2345, "Argument of type '\"five\"' is not assignable "],
+    [2345, "Argument of type 'string' is not assignable "],
     [2345, "Argument of type 'number' is not assignable "],
     [2345, "Argument of type '\"-nope\"' is not assignable "],
-    [2345, "Argument of type '\"3\"' is not assignable "],
+    [2345, "Argument of type 'string' is not assignable "],
     [2322, "Type '\"middle\"' is not assignable "],
-    [2345, "Argument of type '\"yes\"' is not assignable "],
+    [2345, "Argument of type 'string' is not assignable "],
   ]);
   assert.equal(r.caught, r.tsc.length);
 });
@@ -356,16 +356,19 @@ async function f(): Promise<number> { return 1; }
 f().thn(() => {});
 async function g() { (await f()).toFixd(); }
 class C { #items = new Map<string, number>(); get(k: string) { return this.#items.gett(k); } }
+interface Order { region: string; qty: number }
+const orders: Order[] = [];
+orders.fliter((o) => o.qty > 0);
 `]]));
   assert.deepEqual(r.falseErrors.map((d) => `${d.start} ${d.code} ${d.message}`), []);
   assert.deepEqual(r.smaltty.map((d) => d.message.replace(/ on type '[^']*'/, '')), [
     "Property 'pussh' does not exist. Did you mean 'push'?",
-    "Argument of type '\"five\"' is not assignable to parameter of type 'number'.",
+    "Argument of type 'string' is not assignable to parameter of type 'number'.",
     "Property 'toFixd' does not exist. Did you mean 'toFixed'?",
     'Expected 1-2 arguments, but got 3.',
     "Property 'lenght' does not exist. Did you mean 'length'?",
     "Property 'toUpperCas' does not exist. Did you mean 'toUpperCase'?",
-    "Argument of type 'number' is not assignable to parameter of type 'K'.",
+    "Argument of type 'number' is not assignable to parameter of type 'string'.",
     "Property 'sett' does not exist. Did you mean 'set'?",
     "Property 'ad' does not exist.",
     "Property 'flor' does not exist. Did you mean 'floor'?",
@@ -373,8 +376,11 @@ class C { #items = new Map<string, number>(); get(k: string) { return this.#item
     "Property 'thn' does not exist. Did you mean 'then'?",
     "Property 'toFixd' does not exist. Did you mean 'toFixed'?",
     "Property 'gett' does not exist. Did you mean 'get'?",
+    "Property 'fliter' does not exist. Did you mean 'filter'?",
   ]);
   assert.equal(r.caught, r.tsc.length);
+  // The messages too, type names included: tsc's, word for word.
+  assert.deepEqual(r.messageDiffs, []);
 });
 
 test('a cache kept between checks: the same errors, an edited library re-read', () => {

@@ -143,6 +143,11 @@ Status: in progress. Done so far:
   smaltui's tabs as written and in 118 mutants, against tsc with the same names declared global: no false errors, 37
   of tsc's 38 errors caught. smaltdf read from its declarations (`.d.ts`, what a page has) finds every error its
   source does.
+- Messages name types as tsc does for arrays (`Order[]`, where they said `'?'`), primitives and literals, and generic
+  instances whose arguments are plain (`Map<string, number>`); a literal argument is written widened (`string`) where
+  the parameter has no literals, as tsc does. Where tsc keeps an alias or a mapped type's name (`Rel<RowOf<…>>`,
+  `Cols<…>`), smaltty writes a shorter name: 250 of the errors both report in the tests have a message other than
+  tsc's (`messageDiffs`; 370 before). The built-in types' messages are tsc's word for word.
 
 - smaltkit's wrapper runs the checker in a worker. smaltui and smaltnb show its warnings and still run the code.
 - **Done when:** both apps show smaltdf type errors for the corpus's broken cases, and running code is no slower.
