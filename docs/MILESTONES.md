@@ -115,7 +115,11 @@ Status: in progress. Done so far (`src/checker.ts`, `test/checker.test.ts`):
   widened type where nothing else types them, `await` unwraps a `Promise`, and a class property without an annotation
   takes its initializer's type. Now caught: smaltts's mutants 662 of 847 (78%), smaltdf's 325 of 370 (88%); still no
   false errors on either, on the corpus libraries, or on smaltts's own code.
-- Next: the done-when's speed targets, measured on the corpus.
+- Speed ([BENCHMARKS.md](BENCHMARKS.md), "Checking"), with `checkCache()` keeping parsed files between checks: a cold
+  check of a smaltts example takes 8.6 ms (median of 14; the slowest 11.4 ms) and of smaltnb's notebooks 2.4–3.7 ms,
+  against a target of under 10 ms; a re-check after an edit takes 0.2–0.5 ms (the slowest 1.3 ms), against 1–2 ms. The
+  first check in a fresh process takes 43–97 ms, most of it parsing the libraries' source while the JIT warms up.
+- Next: gate C, the owner's.
 
 - Built-in types prepared when smaltty is built (only what users call). smaltdf's and smaltts's `.d.ts` read in the
   page. Checks on calls into smaltdf and smaltts: unknown methods and properties, argument types and counts, option

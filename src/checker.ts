@@ -38,6 +38,23 @@ export interface CheckOptions {
   readonly packages?: Readonly<Record<string, string>>;
   /** False: keep the errors `// @ts-expect-error` and `// @ts-ignore` would silence (default true). */
   readonly suppress?: boolean;
+  /**
+   * Files parsed by earlier checks, kept for the next (from `checkCache()`): a re-check after an edit parses only the
+   * files whose text changed. An editor keeps one per page.
+   */
+  readonly cache?: CheckCache;
+}
+
+/** Parsed files kept between checks: a file's tree and names, by path, while its text is the same. */
+export interface CheckCache {
+  readonly files: Map<string, { readonly text: string; readonly info: SourceInfo | null }>;
+  /** Whether a file's text has a module augmentation, by path, while its text is the same. */
+  readonly augments: Map<string, { readonly text: string; readonly has: boolean }>;
+}
+
+/** A cache for `check()` and `expectations()` to keep parsed files in between calls. */
+export function checkCache(): CheckCache {
+  return { files: new Map(), augments: new Map() };
 }
 
 /** A `// @ts-expect-error` comment, and whether the checker finds an error on the line it covers. */
@@ -203,13 +220,16 @@ class Checker {
     if (!this.sources.has(path)) {
       const text = path === BUILTINS_PATH ? BUILTINS : this.files.get(path);
       let info: SourceInfo | null = null;
-      if (text !== undefined) {
+      const cached = this.options.cache?.files.get(path);
+      if (cached !== undefined && cached.text === text) info = cached.info;
+      else if (text !== undefined) {
         try {
           const tree = parse(text, { fileName: path });
           info = { path, tree, bindings: bind(tree) };
         } catch {
           info = null; // a file that doesn't parse declares nothing the checker can use
         }
+        this.options.cache?.files.set(path, { text, info });
       }
       this.sources.set(path, info);
     }
@@ -1383,11 +1403,21 @@ class Checker {
   }
 
   /** The interfaces other files add to a module with `declare module '…'`. */
+  /** Whether a file's text may hold a module augmentation (a cheap text search, kept in the cache). */
+  private mayAugment(path: string, text: string): boolean {
+    const cache = this.options.cache?.augments;
+    const hit = cache?.get(path);
+    if (hit !== undefined && hit.text === text) return hit.has;
+    const has = text.includes('declare module');
+    cache?.set(path, { text, has });
+    return has;
+  }
+
   private augmentationsOf(path: string): readonly Decl[] {
     if (!this.augmentations) {
       this.augmentations = new Map();
       for (const [file, text] of this.files) {
-        if (!text.includes('declare module')) continue;
+        if (!this.mayAugment(file, text)) continue;
         const f = this.source(file);
         if (!f) continue;
         const t = f.tree;
