@@ -115,14 +115,13 @@ generic({ anything: 1 });
   assert.deepEqual(r.smaltty, []);
 });
 
-test('quiet where it cannot know: index signatures, unknown bases, statics, primitives, spreads, overloads', () => {
+test('quiet where it cannot know: index signatures, unknown bases, statics, spreads, overloads', () => {
   const r = run(`import { scan, Rel, type Open, FromUnknown } from './lib.js';
 declare const o: Open;
 o.anything;
 new FromUnknown().anything;
 Rel.of();
 Rel.whatever;
-'text'.whatever;
 scan('t').toString();
 const args: [number] = [1];
 scan('t').limit(...args);
@@ -265,7 +264,7 @@ test("smaltts's examples mutated: every smaltty error is tsc's; how many of tsc'
   console.log(`# ${roots.length} mutants: tsc ${main.tsc} errors of the checked codes, smaltty caught ${main.caught} (${((100 * main.caught) / main.tsc).toFixed(0)}%); 2322: ${props.caught} of ${props.tsc}`);
   // A floor, raised as checking grows: caught share must not fall. (72% since tsc's 2345 errors are counted: most
   // of those it misses are knock-on errors of the mutation elsewhere in the file.)
-  assert.ok(main.caught / main.tsc >= 0.72, `caught ${main.caught} of ${main.tsc}`);
+  assert.ok(main.caught / main.tsc >= 0.76, `caught ${main.caught} of ${main.tsc}`);
 });
 
 test('this, private names, parameter properties and module augmentations', () => {
@@ -332,5 +331,48 @@ test("smaltdf's API in the apps and generated scripts, mutated: every smaltty er
   const main = r.tsc.filter((d) => d.code !== 2322).length;
   const caught = r.smaltty.filter((d) => d.code !== 2322).length;
   console.log(`# smaltdf: ${roots.length} mutants: tsc ${main} errors, smaltty caught ${caught} (${((100 * caught) / main).toFixed(0)}%)`);
-  assert.ok(caught / main >= 0.75, `caught ${caught} of ${main}`);
+  assert.ok(caught / main >= 0.85, `caught ${caught} of ${main}`);
+});
+
+test('the built-in types: arrays, strings, numbers, maps, sets, promises, Math and JSON', () => {
+  const r = compareChecks(new Map([['/user.ts', `const xs = [1, 2, 3];
+xs.pussh(4);
+xs.push('five');
+xs.map((x) => x.toFixd(2));
+xs.indexOf(2, 0, 1);
+const names = ['a', 'b'];
+names.push('c');
+'text'.lenght;
+'text'.padStart(3, '-').toUpperCas();
+const m = new Map<string, number>();
+m.get(1);
+m.sett('a', 1);
+const s = new Set<number>();
+s.ad(1);
+Math.flor(1.5);
+Math.max(1, 2, 3).toFixed(1);
+JSON.parse('{}', undefined, 1);
+async function f(): Promise<number> { return 1; }
+f().thn(() => {});
+async function g() { (await f()).toFixd(); }
+class C { #items = new Map<string, number>(); get(k: string) { return this.#items.gett(k); } }
+`]]));
+  assert.deepEqual(r.falseErrors.map((d) => `${d.start} ${d.code} ${d.message}`), []);
+  assert.deepEqual(r.smaltty.map((d) => d.message.replace(/ on type '[^']*'/, '')), [
+    "Property 'pussh' does not exist. Did you mean 'push'?",
+    "Argument of type '\"five\"' is not assignable to parameter of type 'number'.",
+    "Property 'toFixd' does not exist. Did you mean 'toFixed'?",
+    'Expected 1-2 arguments, but got 3.',
+    "Property 'lenght' does not exist. Did you mean 'length'?",
+    "Property 'toUpperCas' does not exist. Did you mean 'toUpperCase'?",
+    "Argument of type 'number' is not assignable to parameter of type 'K'.",
+    "Property 'sett' does not exist. Did you mean 'set'?",
+    "Property 'ad' does not exist.",
+    "Property 'flor' does not exist. Did you mean 'floor'?",
+    'Expected 1-2 arguments, but got 3.',
+    "Property 'thn' does not exist. Did you mean 'then'?",
+    "Property 'toFixd' does not exist. Did you mean 'toFixed'?",
+    "Property 'gett' does not exist. Did you mean 'get'?",
+  ]);
+  assert.equal(r.caught, r.tsc.length);
 });

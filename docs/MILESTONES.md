@@ -106,12 +106,16 @@ Status: in progress. Done so far (`src/checker.ts`, `test/checker.test.ts`):
 - smaltdf: `this` in class members, private names (`#x`), parameter properties, and module augmentations
   (`declare module './expr.js' { interface Expr { … } }`, which smaltdf uses) are read. The corpus libraries
   (smaltdf, smaltnb, smaltkit, smaltui's tokenizer) as written: no false errors. smaltdf's API in the apps and
-  generated scripts, in 683 mutants: no false errors, 285 of tsc's 370 errors caught (77%). The rest are mostly
-  built-in types (`Map`, `Array`), which aren't modelled yet.
-- Next: the built-in types (how their declarations are sourced is the owner's call: written here, or read from
-  TypeScript's lib, which is Apache-2.0); the done-when's speed targets measured on the corpus.
-  checker (a smaltty pin in smaltts, the owner's call).
-  `npm run check` running the checker.
+  generated scripts, in 683 mutants: no false errors, 285 of tsc's 370 errors caught (77%) before the built-in types.
+- The built-in types (`src/builtins.ts`): `Array`, `String`, `Number`, `Boolean`, `Map`, `ReadonlyMap`, `Set`,
+  `ReadonlySet`, `Promise`, `Math` and `JSON`, declared in smaltty's own words (the owner's decision, 2026-11-11: our
+  own table, not TypeScript's lib) and read like any library's. `test/builtins.test.ts` holds them to TypeScript's
+  latest lib: the same members, properties where it has properties, and each method's argument counts across its
+  overloads (a method with overloads is `(...args: any[])` and isn't counted). Array literals take their elements'
+  widened type where nothing else types them, `await` unwraps a `Promise`, and a class property without an annotation
+  takes its initializer's type. Now caught: smaltts's mutants 662 of 847 (78%), smaltdf's 325 of 370 (88%); still no
+  false errors on either, on the corpus libraries, or on smaltts's own code.
+- Next: the done-when's speed targets, measured on the corpus.
 
 - Built-in types prepared when smaltty is built (only what users call). smaltdf's and smaltts's `.d.ts` read in the
   page. Checks on calls into smaltdf and smaltts: unknown methods and properties, argument types and counts, option
