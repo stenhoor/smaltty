@@ -137,7 +137,7 @@ cold in 11.4 ms); the first check in a fresh process (43–97 ms) is left for la
 
 ## 8. Checking in the apps
 
-Status: in progress. Done so far:
+Status: done, 2026-11-11.
 
 - smaltty: `globals`, modules whose exports are in scope as globals, as a smaltui tab has smaltdf's (`table`, `col`).
   smaltui's tabs as written and in 118 mutants, against tsc with the same names declared global: no false errors, 37
@@ -148,6 +148,18 @@ Status: in progress. Done so far:
   the parameter has no literals, as tsc does. Where tsc keeps an alias or a mapped type's name (`Rel<RowOf<…>>`,
   `Cols<…>`), smaltty writes a shorter name: 250 of the errors both report in the tests have a message other than
   tsc's (`messageDiffs`; 370 before). The built-in types' messages are tsc's word for word.
+- smaltkit: `smaltkit/typecheck` runs the checker in a worker (`typeCheckWorker`; checks answered in order, one replaced
+  before it starts resolves to null), and its editor marks warnings (`setWarnings`): the text underlined, the line
+  number marked, the message on hover. In Chromium a re-check takes 0.9 ms round trip, the first 51 ms with the
+  worker's start (stenhoor/smaltkit#15, #16).
+- smaltui: TypeScript tabs are checked against smaltdf's `.d.ts` (`vendor/smaltdf/types.json`, with smaltdf's exports,
+  `db` and `show` as globals) when they open and 300 ms after an edit (stenhoor/smaltui#34). smaltnb: the notebook is
+  checked against smaltnb's and smaltdf's `.d.ts` each time the kernel takes an edit, and each warning is marked in
+  the cell it is in (stenhoor/smaltnb#25). Their end-to-end tests: the demos have no warnings; a misspelt method and an
+  argument too many are marked with tsc's messages; an edit clears the marks; the code still runs. Running is
+  unchanged: the checker has its own worker, and smaltnb's page grows 1.4 KB.
+
+The plan, as it was:
 
 - smaltkit's wrapper runs the checker in a worker. smaltui and smaltnb show its warnings and still run the code.
 - **Done when:** both apps show smaltdf type errors for the corpus's broken cases, and running code is no slower.
