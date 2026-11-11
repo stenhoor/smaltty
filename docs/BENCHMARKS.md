@@ -102,6 +102,35 @@ message is tsc's.
 | smaltdf's API in a generated script, mutated (560 of 565) | 370 | 370 | 0 | 325 | 0 | 370, 265 | 252 |
 | smaltui's tabs (smaltdf as globals), mutated (116 of 118) | 38 | 38 | 0 | 37 | 0 | 38, 37 | 90 |
 
+### Checking in a page
+
+`NODE_PATH=$(npm root -g) npm run bench:page` (it needs Playwright, which isn't a dependency): smaltty's checker and
+tsrs's WebAssembly build (`@tsrs/wasm`, the same checker as native tsrs, single-threaded) in headless Chromium, each in a
+fresh page, as an app would run them, on the workloads of the checking table above. **Load:** from the page's first
+import to the checker ready to check (tsrs: its module fetched and compiled), from a local server, so without network
+time. **Cold**, **first check:** the first check of each workload in the page (the smaltts row's slowest is the page's
+first check of all). **After an edit:** the median of checks with the user file edited; smaltty keeps a `checkCache()`,
+tsrs makes a fresh instance for each call (its API has no program kept between checks).
+
+Chromium 153.0.8010.12, @tsrs/wasm 0.24.0-ts7.1.0-beta.
+
+| | Downloads | Load (ms) |
+| --- | ---: | ---: |
+| smaltty (`dist/*.js`) | 277 KB (58 KB gzipped) | 27.00 |
+| tsrs (`@tsrs/wasm`: browser.js, core.js, tsrs.wasm) | 9764 KB (2852 KB gzipped) | 61.50 |
+
+| Workload | smaltty cold | tsrs first check | smaltty after an edit | tsrs after an edit |
+| --- | ---: | ---: | ---: | ---: |
+| smaltts's examples (14) | **10.30 (90.80)** | 80.10 (420) | **0.800 (1.30)** | 81.00 (118) |
+| smaltdf: `smaltnb-regional.nb.ts` | **7.70** | 36.40 | **0.500** | 36.70 |
+| smaltdf: `smaltnb-shop.nb.ts` | **8.90** | 38.20 | **0.400** | 36.60 |
+| smaltdf: `generated/40k.ts` | **39.20** | 47.60 | **18.10** | 48.20 |
+
+Errors of the checked codes found (all workloads as written): smaltty 0, tsrs 3.
+
+The 3 errors tsrs finds are tsc's too (tsc 5.9 reports the same three, in two of smaltts's examples as the corpus holds
+them); smaltty reports none of them, as it may: it reports only what tsc does, not all of it.
+
 ### What adding tsrs says
 
 - **tsrs reports what tsc reports.** On all 1,752 mutants it checks, its errors are tsc 5.9's (1,458, at the same
@@ -113,8 +142,11 @@ message is tsc's.
   cold check in a warm page is 3.7–8.3 ms on app code, and a re-check after an edit 0.3–0.6 ms.
 - **On a large file, tsrs's own time is the better one.** The 40 KB script: tsrs 25 ms of its own (83 ms with the
   process), smaltty 31 ms cold and 27 ms after an edit, tsc 224 ms and 71 ms.
-- **What wasn't measured:** tsrs in a page. Its browser build, `@tsrs/wasm`, is 10 MB unpacked, against smaltty's 274
-  KB (55 KB gzipped, the checker and built-in types included); its load time and checks in a page are the like-for-like comparison with smaltty in the apps.
+- **In a page, where the apps check, smaltty is ahead at each step.** tsrs's WebAssembly build is 9.8 MB (2.9 MB
+  gzipped) to smaltty's 277 KB (58 KB), loads in 62 ms against 27 ms before any network time, and checks app code in
+  36–81 ms against smaltty's 7.7–10 ms cold; after an edit smaltty re-checks in under a millisecond, tsrs in the same
+  time as its first check. On the 40 KB script tsrs is close: 48 ms a check, against smaltty's 39 ms cold and 18 ms
+  after an edit.
 
 ### What milestone 7 says
 

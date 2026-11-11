@@ -15,6 +15,7 @@ npm run typecheck      # tsc --noEmit, strict and erasableSyntaxOnly, over src/,
 npm test               # build, then node --test test/*.test.ts (the corpus checks among them)
 npm run test:self      # the same tests, with .ts files stripped by smaltty instead of Node (test/register.mjs)
 npm run bench          # the benchmark tables in docs/BENCHMARKS.md; --quick checks the harness only
+npm run bench:page     # the checkers in a page (Chromium; Playwright through NODE_PATH): smaltty and tsrs's WASM build
 npm run docs:dev       # the docs site (docs/, VitePress); docs:build fails on dead links (CI runs it)
 ```
 
@@ -39,8 +40,8 @@ npm run docs:dev       # the docs site (docs/, VitePress); docs:build fails on d
 ## Rules for code here
 
 - TypeScript only: no Rust, no WASM. Output is plain ES2022 modules that load in a page without a bundler.
-- No run-time dependencies. sucrase, typescript and tsrs (the owner's yes, 2026-11-11) may be dev dependencies for differential tests and
-  benchmarks only.
+- No run-time dependencies. sucrase, typescript, tsrs and @tsrs/wasm (the owner's yes, 2026-11-11) may be dev dependencies for
+  differential tests and benchmarks only.
 - Speed comes first. Every change to the scanner, parser, stripper or binder is benchmarked against the tool it
   replaces, on the same work, and a slowdown is a regression.
 - Follow TypeScript, not sucrase: where they differ, TypeScript's behaviour is right (the owner's rule).

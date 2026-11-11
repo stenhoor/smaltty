@@ -30,12 +30,14 @@
     "typecheck": "tsc -p .",
     "test": "npm run build && node --test test/*.test.ts",
     "bench": "npm run build && node bench/run.ts",
+    "bench:page": "npm run build && node bench/page.ts",
     "test:self": "npm run build && node --import ./test/register.mjs --test test/*.test.ts",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs"
   },
   "devDependencies": {
+    "@tsrs/wasm": "0.24.0-ts7.1.0-beta",
     "@types/node": "^22.0.0",
     "sucrase": "3.35.1",
     "tsrs": "0.24.0-ts7.1.0-beta",
