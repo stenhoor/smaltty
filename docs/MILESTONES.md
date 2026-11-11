@@ -86,14 +86,21 @@ Status: in progress. Done so far (`src/checker.ts`, `test/checker.test.ts`):
   from where they are passed; mapped types over known keys (with `as` and template literals), `keyof`, intersections,
   string literal unions, and `Omit`, `Pick`, `Readonly`, `Partial`, `Required` and `Record`; overloads chosen when only
   one fits. `scan(orders).filter((o) => o.totl…)`, a join's prefixed columns, `extend` and `select` are all checked.
+- Argument types (2345): each argument against its parameter, in order, the first that certainly can't be assigned.
+  Types now include primitives by kind, boolean literals, unions, arrays, indexed access, conditional types (with
+  `infer`, distributed over unions) and template literals over unions, so a column's value type (`RowOf`'s
+  conditional `ValueOf`) and `sort`'s keys are known. A union-typed argument may be narrowed where it is read, which
+  the checker doesn't follow, so it is reported only when every member fails.
 - `// @ts-expect-error` and `// @ts-ignore` silence the line after them, and `@ts-nocheck` a file, as in tsc;
   `expectations()` says which `@ts-expect-error` lines the checker finds an error on. smaltts's compile-time tests:
-  1 of 3 found (a column name); the other two need argument types (2345).
+  all 3 found (a column name, a column compared with a value of another type, a sort key that isn't a column).
 - Against tsc on smaltts's reference examples as written (no errors from either), on all of smaltts's own code (no
-  false errors), and in 982 mutants (a property or an option key misspelt, an argument added or taken away): no false
-  errors, 596 of tsc's 697 errors caught (86%). A check of one example, smaltts's declarations included, takes 5.9 ms
-  (median, warm process; 53 ms the first time).
-- Next: argument types and literal values (2345: `o.total.eq('five')`, sort keys), the built-in types, and smaltdf.
+  false errors), and in 1,026 mutants (a property or an option key misspelt, an argument added, taken away or of
+  another type): no false errors, 637 of tsc's 846 errors caught (75%). Most of the 2345 errors it misses compare
+  generic classes (`Expr<A>` with `Expr<B>`). A check of one example, smaltts's declarations included, takes 5.9 ms
+  (median, warm process; 43 ms the first time).
+- Next: generic classes compared structurally; property types (2322); the built-in types; smaltdf; and smaltts's
+  `npm run check` running the checker.
 
 - Built-in types prepared when smaltty is built (only what users call). smaltdf's and smaltts's `.d.ts` read in the
   page. Checks on calls into smaltdf and smaltts: unknown methods and properties, argument types and counts, option
