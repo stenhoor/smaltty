@@ -12,7 +12,8 @@
 // What it reports, by tsc's codes, so the tests compare the two diagnostic for diagnostic:
 // - 2339: a property that does not exist on a known type, and 2551 when tsc would suggest a member's name;
 // - 2554 and 2555: a call or `new` with an argument count no parameter list accepts;
-// - 2353, and 2561 with a suggestion: an object literal's property that the parameter's type doesn't have.
+// - 2353, and 2561 with a suggestion: an object literal's property that the parameter's type doesn't have;
+// - 2345: an argument whose type certainly can't be assigned to the parameter's.
 import { F, K, isTypeNode } from './kinds.js';
 import { bind, type Bindings } from './binder.js';
 import { parse } from './parser.js';
@@ -89,8 +90,13 @@ interface Sig {
 
 type Type =
   | { readonly k: 'unknown' }
-  /** A primitive (its members are the built-in types', not modelled yet). */
-  | { readonly k: 'primitive' }
+  /** A primitive (its members are the built-in types', not modelled yet), of a kind when known. */
+  | { readonly k: 'primitive'; readonly kind?: 'string' | 'number' | 'boolean' | 'bigint' | 'symbol' | 'null' | 'undefined' }
+  /** `true` or `false`. */
+  | { readonly k: 'bool'; readonly value: boolean }
+  /** A union (not only of string literals); `never` is the union of nothing. */
+  | { readonly k: 'union'; readonly parts: readonly Type[] }
+  | { readonly k: 'array'; readonly element: Type }
   /** String literals: one (`'a'`) or a union of them (`'a' | 'b'`, `keyof T`). */
   | { readonly k: 'keys'; readonly names: ReadonlySet<string> }
   /** An object: a class instance, an interface or a type literal, with its type arguments. */
@@ -107,12 +113,30 @@ type Type =
 
 const UNKNOWN: Type = { k: 'unknown' };
 const PRIMITIVE: Type = { k: 'primitive' };
+const prim = (kind: NonNullable<Extract<Type, { k: 'primitive' }>['kind']>): Type => ({ k: 'primitive', kind });
+const PRIMITIVE_OF: ReadonlyMap<number, Type> = new Map([
+  [K.StringKeyword, prim('string')],
+  [K.NumberKeyword, prim('number')],
+  [K.BooleanKeyword, prim('boolean')],
+  [K.BigIntKeyword, prim('bigint')],
+  [K.SymbolKeyword, prim('symbol')],
+  [K.UndefinedKeyword, prim('undefined')],
+]);
+/** Members a primitive has through its wrapper (String, Number, Boolean): an object type needing only these may take one. */
+const PRIMITIVE_MEMBERS = new Set(['length', 'toString', 'toLocaleString', 'valueOf', 'toFixed', 'toExponential', 'toPrecision', 'charAt', 'charCodeAt', 'codePointAt', 'concat', 'includes', 'endsWith', 'indexOf', 'lastIndexOf', 'localeCompare', 'match', 'matchAll', 'normalize', 'padEnd', 'padStart', 'repeat', 'replace', 'replaceAll', 'search', 'slice', 'split', 'startsWith', 'substring', 'substr', 'toLowerCase', 'toUpperCase', 'toLocaleLowerCase', 'toLocaleUpperCase', 'trim', 'trimStart', 'trimEnd', 'at', 'isWellFormed', 'toWellFormed', 'anchor', 'big', 'blink', 'bold', 'fixed', 'fontcolor', 'fontsize', 'italics', 'link', 'small', 'strike', 'sub', 'sup', 'trimLeft', 'trimRight']);
 const keys = (names: Iterable<string>): Type => ({ k: 'keys', names: new Set(names) });
 
 /** What every object has from Object.prototype. */
 const OBJECT_MEMBERS = new Set(['constructor', 'toString', 'toLocaleString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf', 'propertyIsEnumerable']);
 
 const PRIMITIVE_KINDS = new Set([K.StringKeyword, K.NumberKeyword, K.BooleanKeyword, K.BigIntKeyword, K.SymbolKeyword]);
+
+/** A union, flattened; all string literals stay a set of keys. */
+function union(parts: readonly Type[]): Type {
+  const flat = parts.flatMap((p) => (p.k === 'union' ? p.parts : [p]));
+  if (flat.length && flat.every((p) => p.k === 'keys')) return keys(flat.flatMap((p) => [...(p as Extract<Type, { k: 'keys' }>).names]));
+  return flat.length === 1 ? flat[0]! : { k: 'union', parts: flat };
+}
 
 interface Members {
   /** Member name to its declarations. */
@@ -240,7 +264,7 @@ class Checker {
     const got = args.length;
     if (got >= arity.min && (arity.max === null || got <= arity.max)) {
       const env = t.kind[n] === K.CallExpression ? this.resolveCall(f, n).env : NO_ENV;
-      this.checkObjectArguments(signatures[0]!, env, f, args, out);
+      this.checkArguments(signatures[0]!, env, f, args, out);
       return;
     }
     // tsc's spans: excess arguments from the first one too many; too few at the callee's name.
@@ -283,32 +307,184 @@ class Checker {
   }
 
   /**
-   * Excess properties of object literals passed where a known object type is expected: tsc's 2353, or 2561 with its
-   * spelling suggestion. tsc reports one argument error per call (the first argument that fails) and one excess
-   * property per object literal (the first), so the checker does too.
+   * Each argument against its parameter, in order, as tsc does, reporting the first that fails: an object literal's
+   * excess property (2353, or 2561 with a suggestion), or an argument whose type can't be assigned to the parameter's
+   * (2345). Only a certain failure is reported; arrow functions are not checked yet.
    */
-  private checkObjectArguments(sig: Sig, env: Env, f: SourceInfo, args: readonly number[], out: Diagnostic[]): void {
+  private checkArguments(sig: Sig, env: Env, f: SourceInfo, args: readonly number[], out: Diagnostic[]): void {
     const st = sig.decl.file.tree;
+    const t = f.tree;
     const params = this.paramsOf(sig.decl);
     const own = this.typeParamsOf(sig.decl);
     for (const [i, arg] of args.entries()) {
-      const param = params[i];
-      if (param === undefined || st.flags[param]! & F.Rest) return;
-      if (f.tree.kind[arg] !== K.ObjectLiteralExpression) continue;
+      const param = params[Math.min(i, params.length - 1)];
+      if (param === undefined) return;
+      const rest = (st.flags[param]! & F.Rest) !== 0;
+      if (!rest && i >= params.length) return;
       const typeNode = this.annotationOf(st, param);
       if (typeNode === undefined) continue;
-      // A parameter typed by the signature's own type parameter takes the argument's type: nothing is excess.
+      // A parameter typed by the signature's own type parameter takes the argument's type.
       if (st.kind[typeNode] === K.TypeReference) {
         const d = this.declarationOf(sig.decl.file, st.first[typeNode]!);
         if (d && own.has(keyOf(d))) continue;
       }
-      const target = this.typeOfNode(sig.decl.file, typeNode, env);
-      const d = this.excessProperty(f, arg, target);
-      if (d) {
-        out.push(d);
+      let target = this.typeOfNode(sig.decl.file, typeNode, env);
+      if (rest) {
+        if (target.k !== 'array') return;
+        target = target.element;
+      }
+      const kind = t.kind[arg]!;
+      if (kind === K.ArrowFunction || kind === K.FunctionExpression) continue;
+      if (kind === K.ObjectLiteralExpression) {
+        const d = this.excessProperty(f, arg, target);
+        if (d) {
+          out.push(d);
+          return;
+        }
+        continue;
+      }
+      const type = this.typeOfExpr(f, arg);
+      if (this.assignable(type, target) === 'no') {
+        const start = t.start[arg]!;
+        const shown = rest ? this.show(target) : st.textOf(typeNode);
+        out.push({ file: f.path, start, length: t.end[arg]! - start, code: 2345, message: `Argument of type '${this.show(type)}' is not assignable to parameter of type '${shown}'.` });
         return;
       }
     }
+  }
+
+  /**
+   * Whether a value of type `from` can be assigned to `to`: 'no' only when it certainly can't (the error tsc
+   * reports), 'maybe' where the checker doesn't know enough to say.
+   */
+  private assignable(from: Type, to: Type): 'yes' | 'no' | 'maybe' {
+    if (from.k === 'unknown' || to.k === 'unknown') return 'maybe';
+    if (from.k === 'union') {
+      // A value of a union type may be narrowed where it is read (`typeof v === 'string'`), which the checker doesn't
+      // follow: it fits when every member does, and otherwise the checker can't tell.
+      return from.parts.every((p) => this.assignable(p, to) === 'yes') ? 'yes' : 'maybe';
+    }
+    if (to.k === 'union') {
+      // `boolean` is `true | false`.
+      if (from.k === 'primitive' && from.kind === 'boolean' && to.parts.some((p) => p.k === 'bool' && p.value) && to.parts.some((p) => p.k === 'bool' && !p.value)) return 'yes';
+      const each = to.parts.map((p) => this.assignable(from, p));
+      return each.includes('yes') ? 'yes' : each.every((e) => e === 'no') ? 'no' : 'maybe';
+    }
+    const scalar = from.k === 'primitive' || from.k === 'keys' || from.k === 'bool';
+    if (scalar) {
+      const fromKind = from.k === 'keys' ? 'string' : from.k === 'bool' ? 'boolean' : from.kind;
+      if (fromKind === undefined) return 'maybe';
+      switch (to.k) {
+        case 'primitive':
+          if (to.kind === undefined) return 'maybe';
+          return to.kind === fromKind ? 'yes' : 'no';
+        case 'keys':
+          if (from.k === 'keys') return [...from.names].every((n) => to.names.has(n)) ? 'yes' : 'no';
+          return 'no';
+        case 'bool':
+          if (from.k === 'bool') return from.value === to.value ? 'yes' : 'no';
+          return 'no';
+        case 'array':
+        case 'function':
+          return 'no';
+        case 'object': {
+          // A primitive fits an object type only through its wrapper's members.
+          if (fromKind === 'null' || fromKind === 'undefined') return 'no';
+          const props = this.propsOf(to);
+          if (!props || props.open || !to.decls.every((d) => d.file.tree.kind[d.node] === K.ClassDeclaration)) return 'maybe';
+          return [...props.names.keys()].some((n) => !PRIMITIVE_MEMBERS.has(n)) ? 'no' : 'maybe';
+        }
+        default:
+          return 'maybe';
+      }
+    }
+    // An object, array or function where a primitive is wanted.
+    if ((from.k === 'object' || from.k === 'record' || from.k === 'array' || from.k === 'function') && (to.k === 'keys' || to.k === 'bool' || (to.k === 'primitive' && to.kind !== undefined))) return 'no';
+    return 'maybe';
+  }
+
+  /** A type as tsc would write it, as far as the checker can. */
+  private show(type: Type): string {
+    switch (type.k) {
+      case 'keys':
+        return [...type.names].map((n) => JSON.stringify(n)).join(' | ');
+      case 'bool':
+        return String(type.value);
+      case 'primitive':
+        return type.kind ?? 'unknown';
+      case 'union':
+        return type.parts.map((p) => this.show(p)).join(' | ') || 'never';
+      case 'array':
+        return `${this.show(type.element)}[]`;
+      default:
+        return this.nameOf(type);
+    }
+  }
+
+  /**
+   * A conditional type, where it can be decided: distributed over a union when the checked type is a type parameter,
+   * with `infer` binding a class's or interface's type arguments.
+   */
+  private conditional(f: SourceInfo, n: number, env: Env): Type {
+    const t = f.tree;
+    const [check, ext, yes, no] = this.childrenOf(t, n);
+    const checked = this.typeOfNode(f, check!, env);
+    const checkDecl = t.kind[check!] === K.TypeReference ? this.declarationOf(f, t.first[check!]!) : undefined;
+    const naked = checkDecl !== undefined && t.kind[checkDecl.node] === K.TypeParameter;
+    const decide = (type: Type): Type => {
+      const infers = new Map<string, Type>();
+      const m = this.matches(f, type, ext!, env, infers);
+      if (m === 'maybe') return UNKNOWN;
+      const branchEnv = new Map(env);
+      for (const [k, v] of infers) branchEnv.set(k, v);
+      return this.typeOfNode(f, m === 'yes' ? yes! : no!, naked ? branchEnv.set(keyOf(checkDecl), type) : branchEnv);
+    };
+    if (naked && checked.k === 'union') {
+      const parts = checked.parts.map(decide);
+      return parts.some((p) => p.k === 'unknown') ? UNKNOWN : union(parts);
+    }
+    if (naked && checked.k === 'keys' && checked.names.size > 1) {
+      const parts = [...checked.names].map((name) => decide(keys([name])));
+      return parts.some((p) => p.k === 'unknown') ? UNKNOWN : union(parts);
+    }
+    return decide(checked);
+  }
+
+  /** Whether `type` extends the type node `ext`, binding the `infer` names in it. */
+  private matches(f: SourceInfo, type: Type, ext: number, env: Env, infers: Map<string, Type>): 'yes' | 'no' | 'maybe' {
+    const t = f.tree;
+    if (type.k === 'unknown') return 'maybe';
+    if (t.kind[ext] === K.InferType) {
+      infers.set(`${f.path}:${t.first[ext]!}`, type);
+      return 'yes';
+    }
+    if (t.kind[ext] === K.TypeReference && t.kind[t.first[ext]!] === K.Identifier) {
+      const argNodes = this.childrenOf(t, ext).slice(1);
+      if (argNodes.some((a) => t.kind[a] === K.InferType)) {
+        const d = this.declarationOf(f, t.first[ext]!);
+        const target = d ? this.targetOf(d) : undefined;
+        if (!target) return 'maybe';
+        const tt = target.file.tree;
+        if (type.k !== 'object') return type.k === 'primitive' || type.k === 'keys' || type.k === 'bool' ? 'no' : 'maybe';
+        if (!type.decls.some((x) => x.file === target.file && x.node === target.node)) return 'maybe';
+        const params = this.childrenOf(tt, target.node).filter((c) => tt.kind[c] === K.TypeParameter);
+        let result: 'yes' | 'no' | 'maybe' = 'yes';
+        params.forEach((p, i) => {
+          const a = argNodes[i];
+          const actual = type.env.get(`${target.file.path}:${p}`) ?? UNKNOWN;
+          if (a === undefined) return;
+          if (t.kind[a] === K.InferType) {
+            infers.set(`${f.path}:${t.first[a]!}`, actual);
+            return;
+          }
+          const r = this.assignable(actual, this.typeOfNode(f, a, env));
+          if (r === 'no') result = 'no';
+          else if (r === 'maybe' && result === 'yes') result = 'maybe';
+        });
+        return result;
+      }
+    }
+    return this.assignable(type, this.typeOfNode(f, ext, env));
   }
 
   /** The first property of an object literal that `target` doesn't have, nested literals included. */
@@ -422,11 +598,17 @@ class Checker {
       case K.NoSubstitutionTemplateLiteral:
         return keys([t.textOf(n).slice(1, -1)]);
       case K.NumericLiteral:
+        return prim('number');
       case K.TemplateExpression:
-      case K.TrueKeyword:
-      case K.FalseKeyword:
+        return prim('string');
       case K.BigIntLiteral:
-        return PRIMITIVE;
+        return prim('bigint');
+      case K.TrueKeyword:
+        return { k: 'bool', value: true };
+      case K.FalseKeyword:
+        return { k: 'bool', value: false };
+      case K.NullKeyword:
+        return prim('null');
       default:
         return UNKNOWN;
     }
@@ -840,12 +1022,39 @@ class Checker {
   private typeOfNodeInner(f: SourceInfo, n: number, env: Env): Type {
     const t = f.tree;
     const kind = t.kind[n]!;
-    if (PRIMITIVE_KINDS.has(kind)) return PRIMITIVE;
+    const p = PRIMITIVE_OF.get(kind);
+    if (p) return p;
     switch (kind) {
+      case K.NeverKeyword:
+        return { k: 'union', parts: [] };
       case K.LiteralType: {
         const lit = t.first[n]!;
-        return t.kind[lit] === K.StringLiteral ? keys([t.textOf(lit).slice(1, -1)]) : PRIMITIVE;
+        switch (t.kind[lit]) {
+          case K.StringLiteral:
+          case K.NoSubstitutionTemplateLiteral:
+            return keys([t.textOf(lit).slice(1, -1)]);
+          case K.TrueKeyword:
+            return { k: 'bool', value: true };
+          case K.FalseKeyword:
+            return { k: 'bool', value: false };
+          case K.NullKeyword:
+            return prim('null');
+          case K.NumericLiteral:
+            return prim('number');
+          default:
+            return PRIMITIVE;
+        }
       }
+      case K.ArrayType:
+        return { k: 'array', element: this.typeOfNode(f, t.first[n]!, env) };
+      case K.IndexedAccessType: {
+        const [object, index] = this.childrenOf(t, n);
+        const key = this.typeOfNode(f, index!, env);
+        if (key.k !== 'keys' || key.names.size !== 1) return UNKNOWN;
+        return this.propsOf(this.typeOfNode(f, object!, env))?.names.get([...key.names][0]!)?.() ?? UNKNOWN;
+      }
+      case K.ConditionalType:
+        return this.conditional(f, n, env);
       case K.ParenthesizedType:
         return this.typeOfNode(f, t.first[n]!, env);
       case K.TypeLiteral:
@@ -859,20 +1068,19 @@ class Checker {
         const decl = this.declarationOf(f, name);
         return decl ? this.typeOfDecl(decl, args, env) : this.builtin(t.textOf(name), args);
       }
-      case K.UnionType: {
-        const parts = this.childrenOf(t, n).map((c) => this.typeOfNode(f, c, env));
-        if (parts.every((p) => p.k === 'keys')) return keys(parts.flatMap((p) => [...(p as Extract<Type, { k: 'keys' }>).names]));
-        return UNKNOWN;
-      }
+      case K.UnionType:
+        return union(this.childrenOf(t, n).map((c) => this.typeOfNode(f, c, env)));
       case K.IntersectionType: {
         const parts = this.childrenOf(t, n).map((c) => this.typeOfNode(f, c, env));
         // `keyof T & string`: the keys (names are strings already).
         const named = parts.filter((p) => p.k === 'keys');
-        if (named.length === 1 && parts.every((p) => p.k === 'keys' || p.k === 'primitive')) return named[0]!;
+        if (named.length === 1 && parts.every((p) => p.k === 'keys' || (p.k === 'primitive' && p.kind === 'string'))) return named[0]!;
         return { k: 'intersection', parts, name: t.textOf(n) };
       }
       case K.TypeOperator: {
-        if (!t.textOf(n).startsWith('keyof')) return UNKNOWN; // readonly, unique: not modelled
+        const text = t.textOf(n);
+        if (text.startsWith('readonly')) return this.typeOfNode(f, t.first[n]!, env);
+        if (!text.startsWith('keyof')) return UNKNOWN; // unique: not modelled
         const names = this.keysOf(this.typeOfNode(f, t.first[n]!, env));
         return names ? keys(names) : UNKNOWN;
       }
@@ -971,15 +1179,16 @@ class Checker {
   private template(f: SourceInfo, n: number, env: Env): Type {
     const t = f.tree;
     const [head, ...spans] = this.childrenOf(t, n);
-    let text = t.textOf(head!).slice(1, -2);
+    let texts = [t.textOf(head!).slice(1, -2)];
     for (const span of spans) {
       const [type, literal] = this.childrenOf(t, span);
       const part = this.typeOfNode(f, type!, env);
-      if (part.k !== 'keys' || part.names.size !== 1) return UNKNOWN;
+      if (part.k !== 'keys' || texts.length * part.names.size > 10_000) return UNKNOWN;
       const lit = t.textOf(literal!);
-      text += [...part.names][0]! + (lit.endsWith('`') ? lit.slice(1, -1) : lit.slice(1, -2));
+      const after = lit.endsWith('`') ? lit.slice(1, -1) : lit.slice(1, -2);
+      texts = texts.flatMap((x) => [...part.names].map((name) => x + name + after));
     }
-    return keys([text]);
+    return keys(texts);
   }
 
   /** A class's or interface's instance type, for `args`, with every declaration of its name (interfaces merge). */

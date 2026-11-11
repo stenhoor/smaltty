@@ -10,7 +10,7 @@ import ts from 'typescript';
 import { check, type Diagnostic } from 'smaltty';
 
 /** The codes smaltty's checker reports. */
-export const CHECKED_CODES = new Set([2339, 2551, 2554, 2555, 2353, 2561]);
+export const CHECKED_CODES = new Set([2339, 2551, 2554, 2555, 2353, 2561, 2345]);
 
 export interface Comparison {
   readonly smaltty: readonly Diagnostic[];
