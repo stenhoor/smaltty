@@ -103,7 +103,13 @@ Status: in progress. Done so far (`src/checker.ts`, `test/checker.test.ts`):
   added, taken away or of another type, an option's value of another type): no false errors, 637 of tsc's 847 errors
   of the codes before 2322 caught (75%); of 2322, most of tsc's are knock-on errors outside call arguments (8 of 203).
   A check of one example, smaltts's declarations included, takes 5.5 ms (median, warm process).
-- Next: property types beyond option values; the built-in types; smaltdf; and smaltts's `npm run check` running the
+- smaltdf: `this` in class members, private names (`#x`), parameter properties, and module augmentations
+  (`declare module './expr.js' { interface Expr { … } }`, which smaltdf uses) are read. The corpus libraries
+  (smaltdf, smaltnb, smaltkit, smaltui's tokenizer) as written: no false errors. smaltdf's API in the apps and
+  generated scripts, in 683 mutants: no false errors, 285 of tsc's 370 errors caught (77%). The rest are mostly
+  built-in types (`Map`, `Array`), which aren't modelled yet.
+- Next: the built-in types (how their declarations are sourced is the owner's call: written here, or read from
+  TypeScript's lib, which is Apache-2.0); the done-when's speed targets measured on the corpus.
   checker (a smaltty pin in smaltts, the owner's call).
   `npm run check` running the checker.
 

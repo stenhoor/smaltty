@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { K, expectations, parse } from 'smaltty';
 import { compareChecks } from './checking.ts';
+import { generatedScript } from '../bench/corpus.ts';
 
 const lib = `
 export class Rel<Row> {
@@ -265,4 +266,71 @@ test("smaltts's examples mutated: every smaltty error is tsc's; how many of tsc'
   // A floor, raised as checking grows: caught share must not fall. (72% since tsc's 2345 errors are counted: most
   // of those it misses are knock-on errors of the mutation elsewhere in the file.)
   assert.ok(main.caught / main.tsc >= 0.72, `caught ${main.caught} of ${main.tsc}`);
+});
+
+test('this, private names, parameter properties and module augmentations', () => {
+  const files = new Map([
+    ['/aug.ts', `import { Box } from './box.js';
+declare module './box.js' { interface Box { extra(): number } }
+`],
+    ['/box.ts', `export class Box { constructor(readonly size: number) {} }
+`],
+    ['/user.ts', `import { Box } from './box.js';
+class Cache<V> {
+  #items = new Map<string, V>();
+  hits = 0;
+  get(k: string) {
+    if (this.#item) this.hit++;
+    const f = () => this.misses;
+    return function (this: unknown) { return (this as any).whatever; };
+  }
+  static make() { return this.anything; }
+}
+new Box(1).size;
+new Box(1).extra();
+new Box(1).sizes;
+`],
+  ]);
+  const r = compareChecks(files, { roots: ['/user.ts'] });
+  assert.deepEqual(r.falseErrors, []);
+  assert.deepEqual(r.smaltty.map((d) => [d.code, d.message.replace(/ on type '[^']*'/, '')]), [
+    [2551, "Property '#item' does not exist. Did you mean '#items'?"],
+    [2551, "Property 'hit' does not exist. Did you mean 'hits'?"],
+    [2339, "Property 'misses' does not exist."],
+    [2551, "Property 'sizes' does not exist. Did you mean 'size'?"],
+  ]);
+});
+
+// smaltdf: its source in corpus/libs, under the paths its imports name, read by the apps and generated scripts.
+const smaltdf = new Map<string, string>();
+const libs = new URL('../corpus/libs/', import.meta.url);
+const others = new Map<string, string>();
+for (const f of readdirSync(libs).sort()) (f.startsWith('smaltdf-') ? smaltdf.set(`/df/${f.slice(8)}`, readFileSync(new URL(f, libs), 'utf8')) : others.set(`/libs/${f}`, readFileSync(new URL(f, libs), 'utf8')));
+const dfPackages = { '@smaltdb/df': '/df/index.ts' };
+
+test('the corpus libraries (smaltdf, smaltnb, smaltkit, smaltui) as written: no false errors', () => {
+  const r = compareChecks(new Map([...smaltdf, ...others]), { packages: dfPackages });
+  assert.deepEqual(r.falseErrors.map((d) => `${d.file}:${d.start} ${d.code} ${d.message}`), []);
+});
+
+test("smaltdf's API in the apps and generated scripts, mutated: every smaltty error is tsc's", () => {
+  const files = new Map(smaltdf);
+  const apps = new URL('../corpus/apps/', import.meta.url);
+  const sources: [string, string][] = [
+    ...['smaltui-demo-frames.ts', 'smaltui-starter.ts'].map((f) => [`/apps/${f}`, readFileSync(new URL(f, apps), 'utf8')] as [string, string]),
+    ['/gen/small.ts', generatedScript(6_000)],
+  ];
+  const roots: string[] = [];
+  for (const [name, text] of sources) {
+    for (const [m, mt] of mutants(name, text)) {
+      files.set(m, mt);
+      roots.push(m);
+    }
+  }
+  const r = compareChecks(files, { roots, packages: dfPackages });
+  assert.deepEqual(r.falseErrors.map((d) => `${d.file}:${d.start} ${d.code} ${d.message}`).slice(0, 10), []);
+  const main = r.tsc.filter((d) => d.code !== 2322).length;
+  const caught = r.smaltty.filter((d) => d.code !== 2322).length;
+  console.log(`# smaltdf: ${roots.length} mutants: tsc ${main} errors, smaltty caught ${caught} (${((100 * caught) / main).toFixed(0)}%)`);
+  assert.ok(caught / main >= 0.75, `caught ${caught} of ${main}`);
 });
