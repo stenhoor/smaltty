@@ -187,6 +187,7 @@ scan(orders).sort('-nope');
 scan(orders).sort('-total', 'id');
 scan(orders).limit('3');
 scan(orders).distinct({ keep: 'middle' });
+scan(orders).unpivot(['total'], { name: 'col', value: 'v' });
 declare const maybe: string | number;
 scan(orders).limit(maybe as never);
 declare function flag(on: boolean): void;
@@ -195,14 +196,14 @@ flag('yes');
 `);
   const r = compareChecks(files, { roots: ['/user.ts'] });
   assert.deepEqual(r.falseErrors, []);
-  assert.deepEqual(r.smaltty.map((d) => [d.code, d.message.replace(/to parameter of type .*/, '')]), [
+  assert.deepEqual(r.smaltty.map((d) => [d.code, d.message.replace(/to (parameter of )?type .*/, '')]), [
     [2345, "Argument of type '\"five\"' is not assignable "],
     [2345, "Argument of type 'number' is not assignable "],
     [2345, "Argument of type '\"-nope\"' is not assignable "],
     [2345, "Argument of type '\"3\"' is not assignable "],
+    [2322, "Type '\"middle\"' is not assignable "],
     [2345, "Argument of type '\"yes\"' is not assignable "],
   ]);
-  // tsc also reports `keep: 'middle'`, as 2322 (a property's type), which the checker doesn't check yet.
   assert.equal(r.caught, r.tsc.length);
 });
 
@@ -224,6 +225,10 @@ function mutants(name: string, text: string): [string, string][] {
         const word = t.textOf(id);
         if (word.length > 2) edit(t.start[id]!, t.end[id]!, word.slice(0, -1), 'key');
         edit(t.start[id]!, t.end[id]!, `${word}Zz`, 'keylong');
+        // A value of another type.
+        const value = t.next[id]!;
+        if (t.kind[value] === K.StringLiteral) edit(t.start[value]!, t.end[value]!, '0', 'value');
+        else if (t.kind[value] === K.NumericLiteral || t.kind[value] === K.TrueKeyword || t.kind[value] === K.FalseKeyword) edit(t.start[value]!, t.end[value]!, "'x'", 'value');
       }
     } else if (t.kind[n] === K.CallExpression) {
       const args = t.children(n).slice(1);
@@ -252,8 +257,12 @@ test("smaltts's examples mutated: every smaltty error is tsc's; how many of tsc'
   }
   const r = compareChecks(files, { roots });
   assert.deepEqual(r.falseErrors.map((d) => `${d.file}:${d.start} ${d.code} ${d.message}`).slice(0, 10), []);
-  console.log(`# ${roots.length} mutants: tsc ${r.tsc.length} errors of the checked codes, smaltty caught ${r.caught} (${((100 * r.caught) / r.tsc.length).toFixed(0)}%)`);
+  // 2322 is counted apart: most of tsc's are knock-on errors outside a call's arguments, which aren't in scope.
+  const of = (code: (c: number) => boolean) => ({ tsc: r.tsc.filter((d) => code(d.code)).length, caught: r.smaltty.filter((d) => code(d.code)).length });
+  const main = of((c) => c !== 2322);
+  const props = of((c) => c === 2322);
+  console.log(`# ${roots.length} mutants: tsc ${main.tsc} errors of the checked codes, smaltty caught ${main.caught} (${((100 * main.caught) / main.tsc).toFixed(0)}%); 2322: ${props.caught} of ${props.tsc}`);
   // A floor, raised as checking grows: caught share must not fall. (72% since tsc's 2345 errors are counted: most
-  // of those it misses compare generic classes, Expr<A> with Expr<B>.)
-  assert.ok(r.caught / r.tsc.length >= 0.72, `caught ${r.caught} of ${r.tsc.length}`);
+  // of those it misses are knock-on errors of the mutation elsewhere in the file.)
+  assert.ok(main.caught / main.tsc >= 0.72, `caught ${main.caught} of ${main.tsc}`);
 });

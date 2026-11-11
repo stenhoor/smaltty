@@ -90,16 +90,21 @@ Status: in progress. Done so far (`src/checker.ts`, `test/checker.test.ts`):
   Types now include primitives by kind, boolean literals, unions, arrays, indexed access, conditional types (with
   `infer`, distributed over unions) and template literals over unions, so a column's value type (`RowOf`'s
   conditional `ValueOf`) and `sort`'s keys are known. A union-typed argument may be narrowed where it is read, which
-  the checker doesn't follow, so it is reported only when every member fails.
+  the checker doesn't follow, so it is reported only when every member fails. Two instances of a class are compared
+  by a type parameter that is a property's whole type (`Expr`'s `$type`), so at least covariant.
+- Option values (2322): an object literal argument's property whose value can't be assigned to the parameter type's,
+  in the target's order, after the excess-property check, as tsc. Where the parameter's type comes from the
+  signature's own type parameters (`{ position?: Pos }`), only the keys are checked.
 - `// @ts-expect-error` and `// @ts-ignore` silence the line after them, and `@ts-nocheck` a file, as in tsc;
   `expectations()` says which `@ts-expect-error` lines the checker finds an error on. smaltts's compile-time tests:
   all 3 found (a column name, a column compared with a value of another type, a sort key that isn't a column).
 - Against tsc on smaltts's reference examples as written (no errors from either), on all of smaltts's own code (no
-  false errors), and in 1,026 mutants (a property or an option key misspelt, an argument added, taken away or of
-  another type): no false errors, 637 of tsc's 846 errors caught (75%). Most of the 2345 errors it misses compare
-  generic classes (`Expr<A>` with `Expr<B>`). A check of one example, smaltts's declarations included, takes 5.9 ms
-  (median, warm process; 43 ms the first time).
-- Next: generic classes compared structurally; property types (2322); the built-in types; smaltdf; and smaltts's
+  false errors; 6 of tsc's errors found), and in 1,076 mutants (a property or an option key misspelt, an argument
+  added, taken away or of another type, an option's value of another type): no false errors, 637 of tsc's 847 errors
+  of the codes before 2322 caught (75%); of 2322, most of tsc's are knock-on errors outside call arguments (8 of 203).
+  A check of one example, smaltts's declarations included, takes 5.5 ms (median, warm process).
+- Next: property types beyond option values; the built-in types; smaltdf; and smaltts's `npm run check` running the
+  checker (a smaltty pin in smaltts, the owner's call).
   `npm run check` running the checker.
 
 - Built-in types prepared when smaltty is built (only what users call). smaltdf's and smaltts's `.d.ts` read in the

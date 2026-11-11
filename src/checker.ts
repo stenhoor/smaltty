@@ -13,7 +13,8 @@
 // - 2339: a property that does not exist on a known type, and 2551 when tsc would suggest a member's name;
 // - 2554 and 2555: a call or `new` with an argument count no parameter list accepts;
 // - 2353, and 2561 with a suggestion: an object literal's property that the parameter's type doesn't have;
-// - 2345: an argument whose type certainly can't be assigned to the parameter's.
+// - 2345: an argument whose type certainly can't be assigned to the parameter's, and 2322 for an object literal's
+//   property whose value can't be assigned to the parameter type's property.
 import { F, K, isTypeNode } from './kinds.js';
 import { bind, type Bindings } from './binder.js';
 import { parse } from './parser.js';
@@ -336,7 +337,9 @@ class Checker {
       const kind = t.kind[arg]!;
       if (kind === K.ArrowFunction || kind === K.FunctionExpression) continue;
       if (kind === K.ObjectLiteralExpression) {
-        const d = this.excessProperty(f, arg, target);
+        // Values whose types come from the signature's own type parameters depend on inference the checker may not
+        // follow all the way: only the keys are checked there.
+        const d = this.excessProperty(f, arg, target, !this.mentions(sig.decl.file, typeNode, own));
         if (d) {
           out.push(d);
           return;
@@ -357,17 +360,19 @@ class Checker {
    * Whether a value of type `from` can be assigned to `to`: 'no' only when it certainly can't (the error tsc
    * reports), 'maybe' where the checker doesn't know enough to say.
    */
-  private assignable(from: Type, to: Type): 'yes' | 'no' | 'maybe' {
+  private assignable(from: Type, to: Type, nested = false): 'yes' | 'no' | 'maybe' {
     if (from.k === 'unknown' || to.k === 'unknown') return 'maybe';
     if (from.k === 'union') {
+      const each = from.parts.map((p) => this.assignable(p, to, nested));
+      if (each.every((e) => e === 'yes')) return 'yes';
       // A value of a union type may be narrowed where it is read (`typeof v === 'string'`), which the checker doesn't
-      // follow: it fits when every member does, and otherwise the checker can't tell.
-      return from.parts.every((p) => this.assignable(p, to) === 'yes') ? 'yes' : 'maybe';
+      // follow, so there it can't tell. A union inside a type argument isn't narrowed: one member that fails is enough.
+      return nested && each.includes('no') ? 'no' : 'maybe';
     }
     if (to.k === 'union') {
       // `boolean` is `true | false`.
       if (from.k === 'primitive' && from.kind === 'boolean' && to.parts.some((p) => p.k === 'bool' && p.value) && to.parts.some((p) => p.k === 'bool' && !p.value)) return 'yes';
-      const each = to.parts.map((p) => this.assignable(from, p));
+      const each = to.parts.map((p) => this.assignable(from, p, nested));
       return each.includes('yes') ? 'yes' : each.every((e) => e === 'no') ? 'no' : 'maybe';
     }
     const scalar = from.k === 'primitive' || from.k === 'keys' || from.k === 'bool';
@@ -398,9 +403,55 @@ class Checker {
           return 'maybe';
       }
     }
+    // Two instances of one class or interface: compared by their type arguments, where a type parameter is a
+    // property's whole type (so it is at least covariant, as tsc measures variance).
+    if (from.k === 'object' && to.k === 'object') {
+      const d = to.decls[0]!;
+      if (!from.decls.some((x) => x.file === d.file && x.node === d.node)) return 'maybe';
+      const t = d.file.tree;
+      let result: 'yes' | 'no' | 'maybe' = 'yes';
+      for (const tp of this.childrenOf(t, d.node).filter((c) => t.kind[c] === K.TypeParameter)) {
+        const key = `${d.file.path}:${tp}`;
+        const r = this.assignable(from.env.get(key) ?? UNKNOWN, to.env.get(key) ?? UNKNOWN, true);
+        if (r === 'yes') continue;
+        if (r === 'no' && this.covariant(d, tp)) return 'no';
+        result = 'maybe';
+      }
+      return result;
+    }
+    if (from.k === 'array' && to.k === 'array') return this.assignable(from.element, to.element, true);
     // An object, array or function where a primitive is wanted.
     if ((from.k === 'object' || from.k === 'record' || from.k === 'array' || from.k === 'function') && (to.k === 'keys' || to.k === 'bool' || (to.k === 'primitive' && to.kind !== undefined))) return 'no';
     return 'maybe';
+  }
+
+  /** Whether a type node refers to any of the type parameters `own` (by key). */
+  private mentions(f: SourceInfo, node: number, own: ReadonlySet<string>): boolean {
+    if (!own.size) return false;
+    const t = f.tree;
+    let found = false;
+    const visit = (n: number) => {
+      if (found) return;
+      if (t.kind[n] === K.TypeReference && t.kind[t.first[n]!] === K.Identifier) {
+        const d = this.declarationOf(f, t.first[n]!);
+        if (d && own.has(keyOf(d))) found = true;
+      }
+    };
+    visit(node);
+    t.walk(node, visit);
+    return found;
+  }
+
+  /** Whether a class's or interface's type parameter is some property's whole type (`$type: T`). */
+  private covariant(d: Decl, tp: number): boolean {
+    const t = d.file.tree;
+    const name = t.textOf(t.first[tp]!);
+    return this.childrenOf(t, d.node).some((m) => {
+      const kind = t.kind[m];
+      if (kind !== K.PropertyDeclaration && kind !== K.PropertySignature) return false;
+      const type = this.annotationOf(t, m);
+      return type !== undefined && t.kind[type] === K.TypeReference && this.childrenOf(t, type).length === 1 && t.textOf(type) === name;
+    });
   }
 
   /** A type as tsc would write it, as far as the checker can. */
@@ -488,7 +539,7 @@ class Checker {
   }
 
   /** The first property of an object literal that `target` doesn't have, nested literals included. */
-  private excessProperty(f: SourceInfo, literal: number, target: Type): Diagnostic | undefined {
+  private excessProperty(f: SourceInfo, literal: number, target: Type, values = true): Diagnostic | undefined {
     const t = f.tree;
     const props = this.propsOf(target);
     if (!props || props.open) return undefined;
@@ -518,8 +569,26 @@ class Checker {
       }
     }
     for (const [value, type] of nested) {
-      const d = this.excessProperty(f, value, type);
+      const d = this.excessProperty(f, value, type, values);
       if (d) return d;
+    }
+    if (!values) return undefined;
+    // No excess property: each property's value against the target's, in the target's order, as tsc compares them
+    // (2322 at the property). Nested literals were compared above.
+    const byName = new Map<string, number>();
+    for (const p of children) if (t.kind[p] === K.PropertyAssignment) byName.set(t.textOf(t.first[p]!).replace(/^['"]|['"]$/g, ''), p);
+    for (const [key, member] of props.names) {
+      const p = byName.get(key);
+      if (p === undefined) continue;
+      const value = t.next[t.first[p]!]!;
+      if (t.kind[value] === K.ObjectLiteralExpression || t.kind[value] === K.ArrowFunction || t.kind[value] === K.FunctionExpression) continue;
+      const from = this.typeOfExpr(f, value);
+      const to = member();
+      if (this.assignable(from, to) === 'no') {
+        const name = t.first[p]!;
+        const start = t.start[name]!;
+        return { file: f.path, start, length: t.end[name]! - start, code: 2322, message: `Type '${this.show(from)}' is not assignable to type '${this.show(to)}'.` };
+      }
     }
     return undefined;
   }
@@ -843,6 +912,16 @@ class Checker {
     if (arg.k === 'unknown' || depth > 8) return;
     const t = file.tree;
     if (t.kind[node] === K.ParenthesizedType) return this.unify(file, t.first[node]!, arg, vars, inferred, depth + 1);
+    // A type literal from an object literal: member by member (`{ position?: Pos }` from `{ position: 'pos' }`).
+    if (t.kind[node] === K.TypeLiteral && arg.k === 'record') {
+      for (const m of this.childrenOf(t, node)) {
+        if (t.kind[m] !== K.PropertySignature) continue;
+        const prop = arg.props.get(t.textOf(t.first[m]!));
+        const mt = this.annotationOf(t, m);
+        if (prop && mt !== undefined) this.unify(file, mt, prop(), vars, inferred, depth + 1);
+      }
+      return;
+    }
     if (t.kind[node] !== K.TypeReference || t.kind[t.first[node]!] !== K.Identifier) return;
     const d = this.declarationOf(file, t.first[node]!);
     if (!d) return;
