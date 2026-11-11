@@ -137,6 +137,13 @@ cold in 11.4 ms); the first check in a fresh process (43–97 ms) is left for la
 
 ## 8. Checking in the apps
 
+Status: in progress. Done so far:
+
+- smaltty: `globals`, modules whose exports are in scope as globals, as a smaltui tab has smaltdf's (`table`, `col`).
+  smaltui's tabs as written and in 118 mutants, against tsc with the same names declared global: no false errors, 37
+  of tsc's 38 errors caught. smaltdf read from its declarations (`.d.ts`, what a page has) finds every error its
+  source does.
+
 - smaltkit's wrapper runs the checker in a worker. smaltui and smaltnb show its warnings and still run the code.
 - **Done when:** both apps show smaltdf type errors for the corpus's broken cases, and running code is no slower.
 
