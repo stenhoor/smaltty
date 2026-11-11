@@ -1,6 +1,7 @@
 # smaltty design
 
-Status: **proposal**, from the owner interview of 2026-11-08. Nothing is built yet.
+Status: **accepted**, from the owner interview of 2026-11-08, with the owner's decisions since. Milestones 1–8 are
+built ([MILESTONES.md](MILESTONES.md)); what comes next is proposed in [ADR 0029](adr/0029-after-the-checker-trial.md).
 
 ## Why
 

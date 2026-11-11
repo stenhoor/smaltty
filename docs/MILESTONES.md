@@ -60,6 +60,9 @@ Status: done, 2026-11-08 ([BENCHMARKS.md](BENCHMARKS.md), "What milestone 5 says
 
 ## 6. smaltnb moves over
 
+Status: done in smaltnb's code, to be confirmed against the done-when below (ADR 0029): smaltnb's `format.ts` walks
+smaltty's tree, and nothing in smaltnb imports `typescript`.
+
 - `parseNotebook`, `compileCell`, `compileSetup` and `compileGuard` use smaltty. The `ts` option, `loadTypeScript` and
   `TYPESCRIPT_URL` go: a breaking change to smaltnb's API. Notebooks with `enum` or `namespace` now get an error.
 - **Done when:** smaltnb's tests and e2e pass with no TypeScript compiler at run time, and smaltdb-sucrase is retired.
@@ -164,8 +167,92 @@ The plan, as it was:
 - smaltkit's wrapper runs the checker in a worker. smaltui and smaltnb show its warnings and still run the code.
 - **Done when:** both apps show smaltdf type errors for the corpus's broken cases, and running code is no slower.
 
+**Gate D (owner):** the decisions in [ADR 0029](adr/0029-after-the-checker-trial.md): TypeScript 7 as the reference
+(a dev dependency change), the tolerant parse for checking, and the order below. Nothing in milestones 9–15 starts
+until the owner answers.
+
+Proposed in ADR 0029, 2026-11-11: speed in the page first (milestones 10–12), then checking through syntax errors and
+coverage (13–14), then messages (15). Each milestone is measured on the tables in [BENCHMARKS.md](BENCHMARKS.md),
+smaltty against tsc and tsrs, in Node and in Chromium; a slowdown is a regression.
+
+## 9. TypeScript 7 as the reference
+
+- `typescript` 5.9.3 becomes 6.0.3, kept for its JavaScript API only (`createSourceFile`, `createProgram`,
+  `transpileModule`: the parser's, stripper's and binder's comparisons). TypeScript 7's errors come from its `tsc`
+  command (an npm alias beside 6.0.3) or from tsrs, and are the reference for the checker's tests: which errors, where,
+  and their messages.
+- `test/checking.ts` and `test/tsrs.ts` compare with TypeScript 7; `test/tsrs.ts` also counts the errors smaltty
+  misses, by code, for milestone 14. The coverage floors in `test/checker.test.ts` are re-taken on 7's errors.
+- smaltty's own `typecheck` runs on TypeScript 7. Milestone 6's status is confirmed, and the status page and DESIGN.md
+  are brought up to date.
+- **Done when:** CI passes with TypeScript 7 as the checker's reference, BENCHMARKS.md has TypeScript 7's columns, and
+  the messages that differ are counted against 7 (the count milestone 15 brings down).
+
+## 10. Entry points and size
+
+- `smaltty/strip` (scanner, parser, stripper) and `smaltty/check` (binder, checker, built-in types) as entry points
+  of their own, `smaltty` still exporting everything. smaltkit's `typescript` module imports `smaltty/strip`, and its
+  `typecheck` worker `smaltty/check`.
+- `dist/` minified when smaltty is built, if loading in Chromium says it pays (the docs keep the readable source).
+- **Done when:** the stripping path is under 30 KB gzipped, loading in a page is measured for each entry point, and
+  smaltui and smaltnb load no checker code outside the checker's worker.
+
+## 11. Prepared declarations: the first check
+
+- `prepare(files)`: declarations (`.d.ts`) parsed and bound once, written as one buffer (the trees are already flat
+  typed arrays) with the names and the index the checker reads. `check()` takes prepared files beside text.
+- The built-in types prepared when smaltty is built. smaltui's and smaltnb's build steps that write `types.json` write
+  prepared declarations instead (PRs in smaltkit, smaltui and smaltnb, linked with `Depends on:`).
+- smaltkit's worker starts while the page is idle and warms with a check of nothing.
+- **Done when:** a page's first check, from the worker's start, is under 20 ms in Chromium for smaltui's tabs and
+  smaltnb's notebooks (91 ms now for smaltts's examples; measured for each), cold checks stay under 10 ms, and the
+  errors found are the same as from `.d.ts` text.
+
+## 12. Incremental re-checks
+
+- Results kept per top-level statement and per notebook cell, keyed by its text and the declarations it uses (ty's
+  incremental queries, DESIGN.md). An edit re-parses the file (parsing is cheap) and re-checks only the statements
+  whose text or dependencies changed.
+- **Done when:** a re-check of `generated/40k.ts` after a one-line edit takes under 3 ms (27 ms now; tsrs's own time
+  25 ms), app code re-checks no slower than now (0.3–0.8 ms), and every error is the same as a cold check's.
+
+## 13. Checking through syntax errors
+
+Only with the owner's yes at gate D: it is an exception to the node-for-node rule.
+
+- A tolerant parse for checking: a syntax error is kept to its top-level statement (or cell), which is reported with
+  its line and column, and the rest of the file is parsed and checked. The strict parser, compared with TypeScript
+  node for node, stays for stripping.
+- smaltui's tabs and smaltnb's notebooks show the other lines' warnings while one line is half typed; smaltnb's own
+  `parseTolerant` goes from its checking path.
+- **Done when:** on the mutants with a syntax error added to one statement, the other statements' errors are TypeScript
+  7's on the same file without it, with no false errors; and the strict parse is no slower.
+
+## 14. Coverage
+
+In the order of milestone 9's count of what is missed most, each part measured on its own:
+
+- Narrowing: `typeof`, `===` and `!==`, `in`, truthiness, optional chaining, so union-typed arguments are checked.
+- Locals' types (annotated, or from their initializers) and functions' return types, so values passed through a
+  variable are checked.
+- Assignments and returns: 2322 outside call arguments.
+- Unknown names (2304, and 2552 with a suggestion), once the globals of each page are declared in full (the built-in
+  types, `types.json`'s globals, and the browser's that a tab may use).
+- A missing `await`.
+- The built-in types modern browsers ship: `Date`, `RegExp`, `Object`, `Error`, iterator helpers, `Array.fromAsync`,
+  ES2025's `Set` methods, `structuredClone` and `console`, each held to TypeScript's lib by `test/builtins.test.ts`.
+- **Done when:** smaltts's mutants above 90% caught, smaltdf's above 95%, the floors in `test/checker.test.ts` raised
+  to match, still no false errors on any corpus, and cold checks and re-checks no slower than after milestone 12.
+
+## 15. Messages as TypeScript 7 writes them
+
+- Types printed with their alias and mapped-type names (`Rel<RowOf<…>>`, `Cols<…>`) where TypeScript keeps them, and
+  unions in TypeScript 7's order.
+- **Done when:** the messages that differ from TypeScript 7's on errors both report are under 25 (from milestone 9's
+  count), and `messageDiffs` is held to that in the tests.
+
 ## Not scheduled
 
-Anything past checking smaltdf's and smaltts's APIs: other APIs, more of TypeScript, blocking runs on errors, a prepared smaltdf type
-table. Each one is weighed against the test in DESIGN.md (does it remove outside code from the apps, or make them
-faster?) before it is scheduled.
+Anything past milestones 9–15: other APIs, more of TypeScript, blocking runs on errors, completions, hover and
+go-to-definition. Each one is weighed against the test in DESIGN.md (does it remove outside code from the apps, or make
+them faster?) before it is scheduled.
