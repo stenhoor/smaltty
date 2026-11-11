@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { K, check, checkCache, expectations, parse } from 'smaltty';
-import { compareChecks } from './checking.ts';
+import { compareChecks, declarationsOf, globalsDeclaration } from './checking.ts';
 import { generatedScript } from '../bench/corpus.ts';
 
 const lib = `
@@ -389,4 +389,47 @@ test('a cache kept between checks: the same errors, an edited library re-read', 
   }
   // The edited library is the one read: limit takes one argument in v2.
   assert.ok(errors(new Map([['/lib.ts', libV2], ['/user.ts', user]]), cache).some((e) => e.endsWith(' 2554')));
+});
+
+test("globals: smaltui's tabs, smaltdf's exports in scope, as written and mutated", () => {
+  const files = new Map(smaltdf);
+  files.set('/globals.d.ts', globalsDeclaration(smaltdf, '@smaltdb/df', '/df/index.ts'));
+  const apps = new URL('../corpus/apps/', import.meta.url);
+  const roots: string[] = [];
+  for (const f of ['smaltui-demo-frames.ts', 'smaltui-starter.ts']) {
+    const text = readFileSync(new URL(f, apps), 'utf8');
+    files.set(`/tabs/${f}`, text);
+    roots.push(`/tabs/${f}`);
+    for (const [m, mt] of mutants(`/tabs/${f}`, text)) {
+      files.set(m, mt);
+      roots.push(m);
+    }
+  }
+  const r = compareChecks(files, { roots, packages: dfPackages, globals: ['@smaltdb/df'] });
+  assert.deepEqual(r.falseErrors.map((d) => `${d.file}:${d.start} ${d.code} ${d.message}`).slice(0, 10), []);
+  assert.deepEqual(r.tsc.filter((d) => d.file === '/tabs/smaltui-demo-frames.ts' || d.file === '/tabs/smaltui-starter.ts'), []);
+  const main = r.tsc.filter((d) => d.code !== 2322).length;
+  const caught = r.smaltty.filter((d) => d.code !== 2322).length;
+  console.log(`# tabs: ${roots.length - 2} mutants: tsc ${main} errors, smaltty caught ${caught} (${((100 * caught) / main).toFixed(0)}%)`);
+  assert.ok(caught / main >= 0.9, `caught ${caught} of ${main}`);
+
+  // The same, with smaltdf read from its declarations (.d.ts), as a page has it: every error found from its source,
+  // and more where the declarations spell out a type the source leaves to inference.
+  const dts = declarationsOf(smaltdf);
+  const withDts = new Map([...files].filter(([f]) => !f.startsWith('/df/')));
+  for (const [f, text] of dts) withDts.set(f, text);
+  withDts.set('/globals.d.ts', globalsDeclaration(dts, '@smaltdb/df', '/df/index.d.ts'));
+  const d = compareChecks(withDts, { roots, packages: { '@smaltdb/df': '/df/index.d.ts' }, globals: ['@smaltdb/df'] });
+  assert.deepEqual(d.falseErrors.map((e) => `${e.file}:${e.start} ${e.code} ${e.message}`).slice(0, 10), []);
+  const fromDts = new Set(d.smaltty.map((e) => `${e.file}:${e.start} ${e.code}`));
+  assert.deepEqual(r.smaltty.map((e) => `${e.file}:${e.start} ${e.code}`).filter((e) => !fromDts.has(e)), []);
+});
+
+test('globals: a name declared in the file comes first; types from the globals module too', () => {
+  const g = `export class Frame { head(n: number): Frame { return this; } }\nexport function table(name: string): Frame { return new Frame(); }\n`;
+  const user = `table('t').hed(1);\nconst f: Frame = table('t');\nf.tail();\n{ const table = (n: number) => n; table(1).toFixed(); }\n`;
+  const files = new Map([['/g.ts', g], ['/user.ts', user]]);
+  const errors = check(files, { roots: ['/user.ts'], globals: ['/g.ts'] }).map((d) => d.message);
+  assert.deepEqual(errors, ["Property 'hed' does not exist on type 'Frame'. Did you mean 'head'?", "Property 'tail' does not exist on type 'Frame'."]);
+  assert.deepEqual(check(files, { roots: ['/user.ts'] }), []);
 });

@@ -36,6 +36,11 @@ export interface CheckOptions {
   readonly roots?: readonly string[];
   /** Bare module specifiers to files: `{ '@smaltworks/smaltts': 'smaltts/src/index.ts' }`. */
   readonly packages?: Readonly<Record<string, string>>;
+  /**
+   * Modules whose exports are in scope everywhere, as globals (paths or `packages` names): what a page gives code it
+   * runs, as `table` and `col` are in a tab that runs smaltdf. A name declared in a file comes first.
+   */
+  readonly globals?: readonly string[];
   /** False: keep the errors `// @ts-expect-error` and `// @ts-ignore` would silence (default true). */
   readonly suppress?: boolean;
   /**
@@ -793,7 +798,20 @@ class Checker {
   private valueOfName(f: SourceInfo, name: number): Type {
     const decl = this.declarationOf(f, name);
     if (decl) return this.valueOfDecl(decl);
-    return f.path === BUILTINS_PATH ? UNKNOWN : this.builtinValue(f.tree.textOf(name));
+    if (f.path === BUILTINS_PATH) return UNKNOWN;
+    const global = this.globalDecl(f.tree.textOf(name));
+    return global ? this.valueOfDecl(global) : this.builtinValue(f.tree.textOf(name));
+  }
+
+  /** A name the `globals` modules export, by name: its declaration, re-exports followed. */
+  private globalDecl(name: string): Decl | undefined {
+    for (const spec of this.options.globals ?? []) {
+      const path = this.options.packages?.[spec] ?? spec;
+      const g = this.source(path);
+      const found = g ? this.exportOf(g, name, new Set()) : undefined;
+      if (found) return this.targetOf(found);
+    }
+    return undefined;
   }
 
   /** The declaration node an Identifier refers to, in its own file. */
@@ -1235,7 +1253,9 @@ class Checker {
         if (t.kind[name] !== K.Identifier) return UNKNOWN; // a qualified name: not modelled
         const args = this.childrenOf(t, n).slice(1).map((a) => this.typeOfNode(f, a, env));
         const decl = this.declarationOf(f, name);
-        return decl ? this.typeOfDecl(decl, args, env) : this.builtin(t.textOf(name), args);
+        if (decl) return this.typeOfDecl(decl, args, env);
+        const global = f.path === BUILTINS_PATH ? undefined : this.globalDecl(t.textOf(name));
+        return global ? this.typeOfDecl(global, args, env) : this.builtin(t.textOf(name), args);
       }
       case K.UnionType:
         return union(this.childrenOf(t, n).map((c) => this.typeOfNode(f, c, env)));

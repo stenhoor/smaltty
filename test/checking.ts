@@ -25,9 +25,9 @@ export interface Comparison {
 const libDir = dirname(createRequire(import.meta.url).resolve('typescript'));
 
 /** Run both on `files` (path to text). Paths are absolute-looking (`/p/src/a.ts`) so tsc and smaltty agree on them. */
-export function compareChecks(files: ReadonlyMap<string, string>, options: { roots?: readonly string[]; packages?: Record<string, string> } = {}): Comparison {
+export function compareChecks(files: ReadonlyMap<string, string>, options: { roots?: readonly string[]; packages?: Record<string, string>; globals?: readonly string[] } = {}): Comparison {
   const roots = options.roots ?? [...files.keys()];
-  const smaltty = check(files, { roots, ...(options.packages ? { packages: options.packages } : {}) });
+  const smaltty = check(files, { roots, ...(options.packages ? { packages: options.packages } : {}), ...(options.globals ? { globals: options.globals } : {}) });
 
   const resolve = (spec: string, from: string): string | undefined => {
     const pkg = options.packages?.[spec];
@@ -100,4 +100,41 @@ if (import.meta.main) {
   for (const d of r.falseErrors.slice(0, 20)) console.log(`FALSE ERROR ${d.file}:${d.start} ${d.code} ${d.message}`);
   console.log(`${files.size} files; smaltty ${r.smaltty.length} errors (${r.falseErrors.length} false), tsc ${r.tsc.length} of codes ${[...CHECKED_CODES].join(', ')}, caught ${r.caught}; ${(performance.now() - start).toFixed(0)} ms with tsc`);
   process.exitCode = r.falseErrors.length ? 1 : 0;
+}
+
+/**
+ * For tsc, a `.d.ts` that makes a module's exported values globals (`declare global`), as `globals` does for smaltty.
+ * `files` holds the module; `spec` is how it is imported.
+ */
+export function globalsDeclaration(files: ReadonlyMap<string, string>, spec: string, path: string): string {
+  const host = ts.createCompilerHost({});
+  host.getSourceFile = (f, target) => {
+    const text = files.get(f) ?? (f.startsWith(libDir) ? readFileSync(f, 'utf8') : undefined);
+    return text === undefined ? undefined : ts.createSourceFile(f, text, target, true);
+  };
+  host.fileExists = (f) => files.has(f);
+  host.readFile = (f) => files.get(f);
+  host.resolveModuleNameLiterals = (lits, containing) =>
+    lits.map((l) => {
+      const base = join(dirname(containing), l.text);
+      const r = [base.replace(/\.js$/, '.ts'), `${base}.ts`, base.replace(/\.js$/, '.d.ts')].find((f) => files.has(f));
+      return { resolvedModule: r ? { resolvedFileName: r, extension: r.endsWith('.d.ts') ? ts.Extension.Dts : ts.Extension.Ts } : undefined };
+    });
+  const program = ts.createProgram([path], { noLib: true, types: [] }, host);
+  const checker = program.getTypeChecker();
+  const module = checker.getSymbolAtLocation(program.getSourceFile(path)!)!;
+  const values = checker.getExportsOfModule(module).filter((x) => (ts.SymbolFlags.Value & (x.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(x).flags : x.flags)) !== 0);
+  return `import * as g from '${spec}';\ndeclare global {\n${values.map((v) => `  const ${v.name}: typeof g.${v.name};`).join('\n')}\n}\nexport {};\n`;
+}
+
+/** tsc's declarations (`.d.ts`) for a library's source files, under the same paths with `.d.ts`: what a page reads. */
+export function declarationsOf(files: ReadonlyMap<string, string>): Map<string, string> {
+  const out = new Map<string, string>();
+  const host = ts.createCompilerHost({});
+  host.getSourceFile = (f, target) => (files.has(f) ? ts.createSourceFile(f, files.get(f)!, target, true) : undefined);
+  host.fileExists = (f) => files.has(f);
+  host.readFile = (f) => files.get(f);
+  host.writeFile = (f, text) => out.set(f, text);
+  ts.createProgram([...files.keys()], { declaration: true, emitDeclarationOnly: true, noLib: true, types: [] }, host).emit();
+  return out;
 }
