@@ -3,6 +3,7 @@
 // the codes smaltty checks that smaltty misses are counted: that count is how far checking has come.
 //
 // `node test/check-sweep.ts <project> [--package name=path]` runs it on a project's .ts files (smaltts, smaltdf).
+// MSGDIFF=1 prints the errors both report whose messages differ (`messageDiffs`).
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { createRequire } from 'node:module';
@@ -20,6 +21,8 @@ export interface Comparison {
   readonly falseErrors: readonly Diagnostic[];
   /** tsc errors smaltty also reports. */
   readonly caught: number;
+  /** Errors both report whose messages differ: smaltty's, then tsc's. */
+  readonly messageDiffs: readonly { file: string; start: number; code: number; smaltty: string; tsc: string }[];
 }
 
 const libDir = dirname(createRequire(import.meta.url).resolve('typescript'));
@@ -68,7 +71,12 @@ export function compareChecks(files: ReadonlyMap<string, string>, options: { roo
   const key = (d: { file: string; start: number; code: number }) => `${d.file}:${d.start}:${d.code}`;
   const tscKeys = new Set(tsc.map(key));
   const falseErrors = smaltty.filter((d) => !tscKeys.has(key(d)));
-  return { smaltty, tsc, falseErrors, caught: smaltty.length - falseErrors.length };
+  const tscMessages = new Map(tsc.map((d) => [key(d), d.message]));
+  const messageDiffs = smaltty
+    .filter((d) => tscKeys.has(key(d)) && tscMessages.get(key(d)) !== d.message)
+    .map((d) => ({ file: d.file, start: d.start, code: d.code, smaltty: d.message, tsc: tscMessages.get(key(d))! }));
+  if (process.env.MSGDIFF) for (const m of messageDiffs) console.log(`MSGDIFF ${m.code} S: ${m.smaltty} T: ${m.tsc}`);
+  return { smaltty, tsc, falseErrors, caught: smaltty.length - falseErrors.length, messageDiffs };
 }
 
 /** Every .ts file of a project (not node_modules, not .d.ts), under paths rooted at `/`. */
