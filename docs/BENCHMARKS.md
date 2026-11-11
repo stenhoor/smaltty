@@ -23,11 +23,12 @@ Times are medians after warm-up, in milliseconds. What is measured, and why:
 - **smaltty parse + bind:** the parse, then the binder resolving every name (milestone 5): the same work as the
   compiler's "parse + resolve names" column.
 - **Full type check:** a reference for phase 1 only. Nothing smaltty builds before gate B is compared with it.
+- **Checking:** one user file and the library it calls, with smaltty's checker and with tsc, cold and after an edit.
 - **Loading:** from a fresh process to the first stripped line. smaltnb pays the compiler's load when its kernel starts.
 
-## Latest run: milestone 5, the binder, 2026-11-08
+## Latest run: milestone 7, the checker, 2026-11-11
 
-Node v22.23.4, linux x64, Intel(R) Xeon(R) Processor (4 threads). sucrase 3.35.1, typescript 5.9.3.
+Node v22.23.4, linux x64, Intel(R) Xeon(R) Processor @ 2.10GHz (4 threads). sucrase 3.35.1, typescript 5.9.3.
 
 ### Stripping and name analysis
 
@@ -35,20 +36,20 @@ Median milliseconds to process the whole group once, on the files every tool acc
 
 | Corpus | Files | Size (KB) | sucrase strip | `transpileModule` | smaltty strip | TypeScript parse | smaltty parse | Parse + resolve names (smaltnb) | smaltty parse + bind |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| App code (smaltui tabs, smaltnb notebooks) | 4 | 2.9 | 0.101 | 3.63 | **0.073** | 0.173 | **0.061** | 2.66 | **0.084** |
-| Library code (smaltdf, smaltnb, smaltkit, smaltui) | 13 | 125 | 8.11 | 77.23 | **3.95** | 12.84 | **3.13** | 88.12 | **5.08** |
-| Syntax edge cases | 6 | 7.8 | 0.638 | 10.73 | **0.371** | 1.12 | **0.270** | 7.59 | **0.464** |
-| Generated script, 40 KB | 1 | 39 | 2.52 | 21.86 | **1.42** | 4.55 | **1.08** | 34.44 | **1.66** |
-| Generated script, 400 KB | 1 | 391 | 53.09 | 213 | **15.02** | 54.61 | **11.80** | 583 | **18.62** |
+| App code (smaltui tabs, smaltnb notebooks) | 4 | 2.9 | 0.158 | 5.03 | **0.113** | 0.367 | **0.095** | 3.56 | **0.141** |
+| Library code (smaltdf, smaltnb, smaltkit, smaltui) | 13 | 125 | 11.13 | 98.08 | **5.99** | 17.19 | **4.96** | 104 | **7.27** |
+| Syntax edge cases | 6 | 7.8 | 0.946 | 11.01 | **0.584** | 1.51 | **0.433** | 10.40 | **0.666** |
+| Generated script, 40 KB | 1 | 39 | 3.13 | 26.00 | **2.08** | 6.25 | **1.74** | 46.38 | **2.44** |
+| Generated script, 400 KB | 1 | 391 | 62.37 | 276 | **21.52** | 75.24 | **17.74** | 645 | **25.96** |
 
 ### App code, per file
 
 | File | Size (bytes) | sucrase strip | `transpileModule` | smaltty strip | smaltty parse | Parse + resolve names | smaltty parse + bind |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `apps/smaltnb-regional.nb.ts` | 1147 | 0.048 | 1.25 | **0.038** | **0.032** | 1.19 | **0.041** |
-| `apps/smaltnb-shop.nb.ts` | 945 | 0.027 | 0.950 | **0.021** | **0.018** | 0.701 | **0.025** |
-| `apps/smaltui-demo-frames.ts` | 719 | 0.022 | 0.653 | **0.014** | **0.012** | 0.342 | **0.017** |
-| `apps/smaltui-starter.ts` | 190 | 0.004 | 0.306 | **0.003** | **0.003** | 0.074 | **0.003** |
+| `apps/smaltnb-regional.nb.ts` | 1147 | 0.070 | 1.42 | **0.061** | **0.046** | 1.30 | **0.061** |
+| `apps/smaltnb-shop.nb.ts` | 945 | 0.040 | 1.04 | **0.031** | **0.026** | 0.754 | **0.044** |
+| `apps/smaltui-demo-frames.ts` | 719 | 0.032 | 0.738 | **0.020** | **0.018** | 0.500 | **0.025** |
+| `apps/smaltui-starter.ts` | 190 | 0.006 | 0.366 | **0.004** | **0.004** | 0.162 | **0.005** |
 
 ### Full type check (reference for phase 1)
 
@@ -56,11 +57,22 @@ Median milliseconds to process the whole group once, on the files every tool acc
 
 | File | Cold | Warm |
 | --- | ---: | ---: |
-| `apps/smaltnb-regional.nb.ts` | 41.70 | 4.29 |
-| `apps/smaltnb-shop.nb.ts` | 34.99 | 1.77 |
-| `apps/smaltui-demo-frames.ts` | 33.45 | 1.51 |
-| `apps/smaltui-starter.ts` | 33.28 | 1.12 |
-| `generated/40k.ts` | 91.26 | 55.88 |
+| `apps/smaltnb-regional.nb.ts` | 48.92 | 4.62 |
+| `apps/smaltnb-shop.nb.ts` | 45.06 | 1.98 |
+| `apps/smaltui-demo-frames.ts` | 44.31 | 1.62 |
+| `apps/smaltui-starter.ts` | 44.36 | 1.07 |
+| `generated/40k.ts` | 112 | 60.29 |
+
+### Checking
+
+One user file checked with the library it calls, read from source (smaltts's 16 files, 184 KB; smaltdf's 9, 85 KB): smaltty's `check()` against tsc (`strict`, `lib.es2022`) on the same files. **First check:** a fresh process, smaltty's modules loaded, the first `check()` (median of runs). **Cold:** in a warmed-up process, nothing kept from the previous check. **After an edit:** the user file changed, the rest kept (smaltty: `checkCache()`; tsc: files kept and its previous program reused, as an editor does). Milliseconds; the smaltts row is the median of its 14 examples, with the slowest in brackets.
+
+| Workload | smaltty first check | smaltty cold | tsc cold | smaltty after an edit | tsc after an edit |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| smaltts's reference and guide examples (14) | 68.94 (97.03) | **8.55 (11.36)** | 141 (200) | **0.459 (1.32)** | 22.22 (31.18) |
+| smaltdf: `smaltnb-regional.nb.ts` | 42.75 | **2.38** | 60.47 | **0.183** | 7.93 |
+| smaltdf: `smaltnb-shop.nb.ts` | 49.73 | **3.69** | 105 | **0.285** | 3.61 |
+| smaltdf: `generated/40k.ts` | 137 | **29.20** | 177 | **30.67** | 68.83 |
 
 ### Loading and size
 
@@ -68,11 +80,23 @@ Loading: a fresh process, from first use to the first stripped line, median of r
 
 | Tool | Load (ms) | Size | Gzipped |
 | --- | ---: | ---: | ---: |
-| sucrase (as `@smaltworks/smaltdb-sucrase` bundles it) | 42.88 | ~200 KB | ~48 KB |
-| TypeScript compiler (`lib/typescript.js`) | 191 | 8899 KB | 1606 KB |
-| smaltty (`dist/*.js`) | 13.60 | 186 KB | 35 KB |
+| sucrase (as `@smaltworks/smaltdb-sucrase` bundles it) | 48.57 | ~200 KB | ~48 KB |
+| TypeScript compiler (`lib/typescript.js`) | 217 | 8899 KB | 1606 KB |
+| smaltty (`dist/*.js`) | 16.22 | 274 KB | 55 KB |
 
 sucrase's bundled size is from smaltdb-sucrase's README (an esbuild bundle of sucrase and its dependencies); smaltty doesn't bundle sucrase to measure it.
+
+### What milestone 7 says
+
+- **Milestone 7's targets are met on the median, not on every example.** A cold check of a smaltts example, built-in
+  types and smaltts's 184 KB of source included, takes 8.6 ms (median of 14; the slowest 11.4 ms), against a target of
+  under 10 ms and tsc's 141 ms. smaltnb's notebooks with smaltdf take 2.4–3.7 ms, against tsc's 60–105 ms.
+- **Re-checks after an edit take 0.2–0.5 ms for app code** (the slowest smaltts example 1.3 ms), against a target of
+  1–2 ms and tsc's 3.6–22 ms with its program reused. `checkCache()` keeps parsed files between checks, so an edit
+  parses only the file that changed. A 40 KB script is re-checked whole in 31 ms, against tsc's 69 ms.
+- **The first check in a fresh process is slower: 43–97 ms**, while the JIT warms up, most of it parsing the
+  libraries' source. The design reads smaltdf's and smaltts's declarations in the page; read as `.d.ts` instead of
+  source, there would be less to parse. tsc pays 191 ms to load before its first check.
 
 ### What milestone 5 says
 

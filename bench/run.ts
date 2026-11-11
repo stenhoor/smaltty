@@ -10,8 +10,8 @@ import { arch, cpus, platform } from 'node:os';
 import { gzipSync } from 'node:zlib';
 import ts from 'typescript';
 import { transform } from 'sucrase';
-import { bind, parse, strip } from 'smaltty';
-import { corpusFiles, generatedFiles, type CorpusFile, type Group } from './corpus.ts';
+import { bind, check, checkCache, parse, strip } from 'smaltty';
+import { checkWorkloads, corpusFiles, generatedFiles, type CheckWorkload, type CorpusFile, type Group } from './corpus.ts';
 
 const quick = process.argv.includes('--quick');
 const require = createRequire(import.meta.url);
@@ -105,6 +105,38 @@ function tsCheck(name: string, text: string, warm?: { libCache: Map<string, ts.S
   return ts.getPreEmitDiagnostics(program).length;
 }
 
+/**
+ * tsc on a checker workload: the same files, imports resolved to them, `strict`, `lib.es2022`, the user file's errors.
+ * With `warm`, lib and library files stay parsed and bound between checks and the previous program is reused.
+ */
+function tscWorkload(w: CheckWorkload, text: string, warm?: { cache: Map<string, ts.SourceFile>; old?: ts.Program }): number {
+  const options: ts.CompilerOptions = { strict: true, noEmit: true, skipLibCheck: true, target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, lib: ['lib.es2022.d.ts'], types: [] };
+  const host = ts.createCompilerHost(options);
+  const get = host.getSourceFile.bind(host);
+  const files = new Map(w.files).set(w.root, text);
+  host.getSourceFile = (f, lang, ...rest) => {
+    if (f === w.root) return ts.createSourceFile(f, text, lang, true, ts.ScriptKind.TS);
+    const hit = warm?.cache.get(f);
+    if (hit) return hit;
+    const own = files.get(f);
+    const sf = own !== undefined ? ts.createSourceFile(f, own, lang, true, ts.ScriptKind.TS) : get(f, lang, ...rest);
+    if (sf) warm?.cache.set(f, sf);
+    return sf;
+  };
+  host.fileExists = (f) => files.has(f) || ts.sys.fileExists(f);
+  host.resolveModuleNameLiterals = (lits, containing) =>
+    lits.map((l) => {
+      const spec = l.text;
+      const base = spec.startsWith('.') ? `${containing.slice(0, containing.lastIndexOf('/'))}/${spec}`.replace(/\/\.\//g, '/') : undefined;
+      const norm = base?.split('/').reduce<string[]>((a, p) => (p === '..' ? a.slice(0, -1) : [...a, p]), []).join('/');
+      const r = w.packages[spec] ?? (norm ? [norm.replace(/\.js$/, '.ts'), `${norm}.ts`].find((f) => files.has(f)) : undefined);
+      return { resolvedModule: r ? { resolvedFileName: r, extension: ts.Extension.Ts } : undefined };
+    });
+  const program = ts.createProgram([w.root], options, host, warm?.old);
+  if (warm) warm.old = program;
+  return ts.getPreEmitDiagnostics(program, program.getSourceFile(w.root)).length;
+}
+
 // ---------------------------------------------------------------- corpus
 
 const files = [...corpusFiles(), ...generatedFiles()];
@@ -173,13 +205,54 @@ for (const f of [...groups[0]!.files, ...groups[3]!.files]) {
 }
 line();
 
+// ---------------------------------------------------------------- the checker (milestone 7)
+
+line('### Checking');
+line();
+line("One user file checked with the library it calls, read from source (smaltts's 16 files, 184 KB; smaltdf's 9, 85 KB): " +
+  "smaltty's `check()` against tsc (`strict`, `lib.es2022`) on the same files. **First check:** a fresh process, smaltty's modules " +
+  'loaded, the first `check()` (median of runs). **Cold:** in a warmed-up process, nothing kept from the previous check. ' +
+  '**After an edit:** the user file changed, the rest kept (smaltty: `checkCache()`; tsc: files kept and its previous program ' +
+  'reused, as an editor does). Milliseconds; the smaltts row is the median of its 14 examples, with the slowest in brackets.');
+line();
+line('| Workload | smaltty first check | smaltty cold | tsc cold | smaltty after an edit | tsc after an edit |');
+line('| --- | ---: | ---: | ---: | ---: | ---: |');
+{
+  const workloads = checkWorkloads();
+  const rows: { label: string; v: number[] }[] = [];
+  workloads.forEach((w, i) => {
+    const first = fresh('', quick ? 1 : 5, [new URL('check-cold.ts', import.meta.url).pathname, String(i)]);
+    const opts = { roots: [w.root], packages: w.packages };
+    const cold = time(() => check(w.files, opts), 600);
+    const tscCold = time(() => tscWorkload(w, w.files.get(w.root)!), 1500, 3);
+    let n = 0;
+    const edited = () => `${w.files.get(w.root)!}\n// edit ${n++}`;
+    const cache = checkCache();
+    const editedFiles = new Map(w.files);
+    const smEdit = time(() => { editedFiles.set(w.root, edited()); check(editedFiles, { ...opts, cache }); }, 600);
+    const warm = { cache: new Map<string, ts.SourceFile>() };
+    tscWorkload(w, edited(), warm);
+    const tscEdit = time(() => tscWorkload(w, edited(), warm), 1500);
+    rows.push({ label: w.label, v: [first, cold, tscCold, smEdit, tscEdit] });
+  });
+  const smaltts = rows.filter((r) => r.label.startsWith('smaltts '));
+  const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[xs.length >> 1]!;
+  const cell = (j: number) => `${fmt(median(smaltts.map((r) => r.v[j]!)))} (${fmt(Math.max(...smaltts.map((r) => r.v[j]!)))})`;
+  line(`| smaltts's reference and guide examples (${smaltts.length}) | ${cell(0)} | **${cell(1)}** | ${cell(2)} | **${cell(3)}** | ${cell(4)} |`);
+  for (const r of rows.filter((r) => !r.label.startsWith('smaltts '))) {
+    const [first, cold, tscCold, smEdit, tscEdit] = r.v.map(fmt);
+    line(`| ${r.label.replace(/^smaltdf (.*)$/, 'smaltdf: `$1`')} | ${first} | **${cold}** | ${tscCold} | **${smEdit}** | ${tscEdit} |`);
+  }
+}
+line();
+
 // ---------------------------------------------------------------- loading and size
 
 /** Milliseconds a fresh Node process takes to run `code`, as reported by the code itself (median of runs). */
-function fresh(code: string, runs = quick ? 1 : 7): number {
+function fresh(code: string, runs = quick ? 1 : 7, args: string[] = ['--input-type=module', '-e', code]): number {
   const samples: number[] = [];
   for (let i = 0; i < runs; i++) {
-    const ms = Number(execFileSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8' }).trim());
+    const ms = Number(execFileSync(process.execPath, args, { encoding: 'utf8' }).trim());
     samples.push(ms);
   }
   samples.sort((a, b) => a - b);

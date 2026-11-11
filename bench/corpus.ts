@@ -108,3 +108,41 @@ export function generatedFiles(): CorpusFile[] {
     { name: 'generated/400k.ts', group: 'generated', erasable: true, sucrase: true, text: generatedScript(400_000) },
   ];
 }
+
+/** A check the checker benchmarks time: one user file (`root`), checked with the library sources it imports. */
+export interface CheckWorkload {
+  label: string;
+  /** The user file and every library file, by path. */
+  files: Map<string, string>;
+  root: string;
+  packages: Record<string, string>;
+}
+
+/** Each file of a corpus folder, under `/<prefix>/<name>`. */
+function folder(dir: string, prefix: string, keep: (f: string) => boolean = () => true): Map<string, string> {
+  const path = new URL(dir + '/', root);
+  const out = new Map<string, string>();
+  for (const f of readdirSync(path).sort()) if (f.endsWith('.ts') && keep(f)) out.set(`/${prefix}/${f}`, readFileSync(new URL(f, path), 'utf8'));
+  return out;
+}
+
+/**
+ * The checker's workloads: code users write, with the library it calls read from source as the checker reads it. smaltts:
+ * each example from its reference and guide, with smaltts's 16 source files. smaltdf: smaltnb's notebooks and a
+ * generated 40 KB script, with smaltdf's source (corpus/libs). The notebooks' `smaltnb` import isn't in the corpus, and
+ * is unknown to both checkers; smaltui's tabs are left out, as they import nothing (smaltui gives smaltdf as globals).
+ */
+export function checkWorkloads(): CheckWorkload[] {
+  const smaltts = folder('check/smaltts/src', 'src');
+  const smaltdf = new Map([...folder('libs', 'df', (f) => f.startsWith('smaltdf-'))].map(([p, t]) => [p.replace('/df/smaltdf-', '/df/'), t]));
+  const dfPackages = { '@smaltdb/df': '/df/index.ts' };
+  const out: CheckWorkload[] = [];
+  for (const [p, text] of folder('check/smaltts/examples', 'examples')) {
+    out.push({ label: `smaltts ${p.slice('/examples/'.length)}`, files: new Map([...smaltts, [p, text]]), root: p, packages: {} });
+  }
+  for (const [p, text] of folder('apps', 'apps', (f) => f.startsWith('smaltnb-'))) {
+    out.push({ label: `smaltdf ${p.slice('/apps/'.length)}`, files: new Map([...smaltdf, [p, text]]), root: p, packages: dfPackages });
+  }
+  out.push({ label: 'smaltdf generated/40k.ts', files: new Map([...smaltdf, ['/gen/40k.ts', generatedScript(40_000)]]), root: '/gen/40k.ts', packages: dfPackages });
+  return out;
+}

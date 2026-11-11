@@ -6,7 +6,7 @@ import { transpile, type Transpiler } from './strip.js';
 
 export { parse, type ParseOptions } from './parser.js';
 export { bind, Bindings, Meaning, type BindSymbol } from './binder.js';
-export { check, expectations, type CheckOptions, type Diagnostic, type Expectation } from './checker.js';
+export { check, checkCache, expectations, type CheckCache, type CheckOptions, type Diagnostic, type Expectation } from './checker.js';
 export { strip, transpile, type StripOptions, type Transpiler, type TranspileOptions } from './strip.js';
 export { Tree } from './tree.js';
 export { K, F, KIND_NAMES, isTypeNode } from './kinds.js';

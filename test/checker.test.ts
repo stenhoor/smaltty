@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
-import { K, expectations, parse } from 'smaltty';
+import { K, check, checkCache, expectations, parse } from 'smaltty';
 import { compareChecks } from './checking.ts';
 import { generatedScript } from '../bench/corpus.ts';
 
@@ -375,4 +375,18 @@ class C { #items = new Map<string, number>(); get(k: string) { return this.#item
     "Property 'gett' does not exist. Did you mean 'get'?",
   ]);
   assert.equal(r.caught, r.tsc.length);
+});
+
+test('a cache kept between checks: the same errors, an edited library re-read', () => {
+  const cache = checkCache();
+  const libV2 = lib.replace('limit(count: number, offset?: number)', 'limit(count: number)');
+  const user = `import { scan, make } from './lib.js';\nscan(make('t')).limit(1, 2).filtr(() => true);\n`;
+  const errors = (files: Map<string, string>, c?: ReturnType<typeof checkCache>) =>
+    check(files, { roots: ['/user.ts'], ...(c ? { cache: c } : {}) }).map((d) => `${d.start} ${d.code}`);
+  for (const [l, u] of [[lib, user], [lib, `${user}// edited\n`], [libV2, user], [libV2, `${user}make('a', 1, 2);\n`], [lib, user]] as const) {
+    const files = new Map([['/lib.ts', l], ['/user.ts', u]]);
+    assert.deepEqual(errors(files, cache), errors(files));
+  }
+  // The edited library is the one read: limit takes one argument in v2.
+  assert.ok(errors(new Map([['/lib.ts', libV2], ['/user.ts', user]]), cache).some((e) => e.endsWith(' 2554')));
 });
