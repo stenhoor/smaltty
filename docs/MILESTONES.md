@@ -74,7 +74,7 @@ Milestone 7 starts before milestone 6; milestone 6 goes on independently.
 
 ## 7. Checker trial
 
-Status: in progress. Done so far (`src/checker.ts`, `test/checker.test.ts`):
+Status: done. Done so far (`src/checker.ts`, `test/checker.test.ts`):
 
 - Declarations read from the libraries a file imports (relative paths, and bare specifiers through `packages`):
   classes, interfaces (merged), type literals, functions (overloads), arrow functions, re-exports and `export *`.
@@ -119,7 +119,6 @@ Status: in progress. Done so far (`src/checker.ts`, `test/checker.test.ts`):
   check of a smaltts example takes 8.6 ms (median of 14; the slowest 11.4 ms) and of smaltnb's notebooks 2.4–3.7 ms,
   against a target of under 10 ms; a re-check after an edit takes 0.2–0.5 ms (the slowest 1.3 ms), against 1–2 ms. The
   first check in a fresh process takes 43–97 ms, most of it parsing the libraries' source while the JIT warms up.
-- Next: gate C, the owner's.
 
 - Built-in types prepared when smaltty is built (only what users call). smaltdf's and smaltts's `.d.ts` read in the
   page. Checks on calls into smaltdf and smaltts: unknown methods and properties, argument types and counts, option
@@ -132,6 +131,9 @@ Status: in progress. Done so far (`src/checker.ts`, `test/checker.test.ts`):
 - smaltts then runs the checker in its `npm run check` (smaltts MILESTONES.md, "Alongside").
 
 **Gate C (owner):** targets met → milestone 8. Not met → stop, or fix what the measurements point to.
+
+Decided on 2026-11-11: **go to milestone 8.** The targets are met on the median (the slowest smaltts example checks
+cold in 11.4 ms); the first check in a fresh process (43–97 ms) is left for later.
 
 ## 8. Checking in the apps
 
