@@ -178,6 +178,8 @@ class Checker {
   /** Parameters of arrow functions typed by where they are passed (`file:node` to type). */
   private readonly contextual = new Map<string, Type>();
   private depth = 0;
+  /** Module augmentations (`declare module './x.js' { interface X { … } }`): target file to its interfaces. */
+  private augmentations: Map<string, Decl[]> | undefined;
 
   constructor(files: ReadonlyMap<string, string>, options: CheckOptions) {
     this.files = files;
@@ -225,7 +227,7 @@ class Checker {
     const t = f.tree;
     const object = t.first[n]!;
     const name = t.next[object]!;
-    if (t.kind[name] !== K.Identifier) return;
+    if (t.kind[name] !== K.Identifier && t.kind[name] !== K.PrivateIdentifier) return;
     const type = this.typeOfExpr(f, object);
     const props = this.propsOf(type);
     if (!props || props.open) return;
@@ -647,6 +649,8 @@ class Checker {
       }
       case K.CallExpression:
         return this.resolveCall(f, n).type;
+      case K.ThisKeyword:
+        return this.typeOfThis(f, n);
       case K.NewExpression: {
         const callee = this.typeOfExpr(f, t.first[n]!);
         return callee.k === 'class' ? this.instanceOf(callee.decl, []) : UNKNOWN;
@@ -654,7 +658,7 @@ class Checker {
       case K.PropertyAccessExpression: {
         const object = this.typeOfExpr(f, t.first[n]!);
         const name = t.next[t.first[n]!]!;
-        if (t.kind[name] !== K.Identifier) return UNKNOWN;
+        if (t.kind[name] !== K.Identifier && t.kind[name] !== K.PrivateIdentifier) return UNKNOWN;
         return this.memberType(object, t.textOf(name));
       }
       case K.ArrowFunction:
@@ -681,6 +685,27 @@ class Checker {
       default:
         return UNKNOWN;
     }
+  }
+
+  /**
+   * `this`: a class's instance in its methods, constructor, property initializers and accessors (arrow functions keep
+   * it); unknown in other functions, static members and object literals' methods.
+   */
+  private typeOfThis(f: SourceInfo, n: number): Type {
+    const t = f.tree;
+    const b = f.bindings;
+    for (let p = b.parent[n]!; p; p = b.parent[p]!) {
+      const kind = t.kind[p]!;
+      if (kind === K.FunctionExpression || kind === K.FunctionDeclaration) return UNKNOWN;
+      const member = kind === K.MethodDeclaration || kind === K.Constructor || kind === K.PropertyDeclaration || kind === K.GetAccessor || kind === K.SetAccessor;
+      if (!member) continue;
+      const owner = b.parent[p]!;
+      if (t.kind[owner] !== K.ClassDeclaration || t.flags[p]! & F.Static) return UNKNOWN;
+      const type = this.instanceOf({ file: f, node: owner }, []);
+      // Its own type parameters stand for themselves: unknown inside the class.
+      return type;
+    }
+    return UNKNOWN;
   }
 
   /** An object literal's properties, or unknown with a spread or a computed name. */
@@ -1270,14 +1295,44 @@ class Checker {
     return keys(texts);
   }
 
-  /** A class's or interface's instance type, for `args`, with every declaration of its name (interfaces merge). */
+  /**
+   * A class's or interface's instance type, for `args`, with every declaration of its name: interfaces merge, also
+   * from module augmentations in other files.
+   */
   private instanceOf(d: Decl, args: readonly Type[]): Type {
     const t = d.file.tree;
     const name = t.first[d.node]!;
     const symbol = d.file.bindings.symbol(name);
     const kinds = new Set([K.ClassDeclaration, K.InterfaceDeclaration]);
     const decls = (symbol?.declarations ?? [name]).map((x) => d.file.bindings.parent[x]!).filter((x) => kinds.has(t.kind[x]!));
-    return { k: 'object', decls: (decls.length ? decls : [d.node]).map((node) => ({ file: d.file, node })), name: t.textOf(name), env: this.envFor(d, args) };
+    const all = (decls.length ? decls : [d.node]).map((node) => ({ file: d.file, node }));
+    const text = t.textOf(name);
+    for (const a of this.augmentationsOf(d.file.path)) if (a.file.tree.textOf(a.file.tree.first[a.node]!) === text) all.push(a);
+    return { k: 'object', decls: all, name: text, env: this.envFor(d, args) };
+  }
+
+  /** The interfaces other files add to a module with `declare module '…'`. */
+  private augmentationsOf(path: string): readonly Decl[] {
+    if (!this.augmentations) {
+      this.augmentations = new Map();
+      for (const [file, text] of this.files) {
+        if (!text.includes('declare module')) continue;
+        const f = this.source(file);
+        if (!f) continue;
+        const t = f.tree;
+        for (let s = t.first[t.root]!; s; s = t.next[s]!) {
+          if (t.kind[s] !== K.ModuleDeclaration) continue;
+          const [spec, block] = this.childrenOf(t, s);
+          if (spec === undefined || t.kind[spec] !== K.StringLiteral || block === undefined) continue;
+          const target = this.resolve(t.textOf(spec).slice(1, -1), file);
+          if (!target) continue;
+          const list = this.augmentations.get(target) ?? [];
+          for (const c of this.childrenOf(t, block)) if (t.kind[c] === K.InterfaceDeclaration) list.push({ file: f, node: c });
+          this.augmentations.set(target, list);
+        }
+      }
+    }
+    return this.augmentations.get(path) ?? [];
   }
 
   /** A type's properties, or undefined when it has none the checker knows (unknown, primitives, functions). */
@@ -1349,6 +1404,18 @@ class Checker {
         }
         continue;
       }
+      if (kind === K.Constructor) {
+        // Parameter properties (`constructor(readonly node: Node)`) are members too.
+        for (const p of this.childrenOf(t, c)) {
+          if (t.kind[p] !== K.Parameter || !(t.flags[p]! & (F.Public | F.Private | F.Protected | F.Readonly))) continue;
+          const id = t.first[p]!;
+          if (t.kind[id] !== K.Identifier) continue;
+          const list = m.byName.get(t.textOf(id)) ?? [];
+          list.push({ file: d.file, node: p });
+          m.byName.set(t.textOf(id), list);
+        }
+        continue;
+      }
       if (kind === K.IndexSignature || kind === K.CallSignature || kind === K.ConstructSignature) {
         if (kind === K.IndexSignature) m.open = true;
         continue;
@@ -1360,7 +1427,7 @@ class Checker {
       let key: string;
       if (nameKind === K.Identifier) key = t.textOf(name);
       else if (nameKind === K.StringLiteral) key = t.textOf(name).slice(1, -1);
-      else if (nameKind === K.PrivateIdentifier) continue;
+      else if (nameKind === K.PrivateIdentifier) key = t.textOf(name);
       else {
         m.open = true; // a computed name: can't be known here
         continue;
@@ -1402,7 +1469,7 @@ class Checker {
       const sigs = decls.filter((d) => !this.childrenOf(d.file.tree, d.node).some((c) => d.file.tree.kind[c] === K.Block));
       return { k: 'function', signatures: (sigs.length ? sigs : decls).map((decl) => ({ decl, env })) };
     }
-    if (kind === K.PropertyDeclaration || kind === K.PropertySignature) {
+    if (kind === K.PropertyDeclaration || kind === K.PropertySignature || kind === K.Parameter) {
       if (decls.length !== 1) return UNKNOWN;
       const type = this.annotationOf(t, first.node);
       return type !== undefined ? this.typeOfNode(first.file, type, env) : UNKNOWN;
