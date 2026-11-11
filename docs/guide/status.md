@@ -9,8 +9,9 @@
 | 3. Stripper | Done |
 | 4. smaltui moves over | Done: smaltui's TypeScript tabs strip types with smaltty |
 | 5. Binder | Done |
-| 6. smaltnb moves over | Next: notebooks without the TypeScript compiler |
-| 7. Checker trial | After the owner's gate B |
-| 8. Checking in the apps | After gate C |
+| 6. smaltnb moves over | Done in smaltnb's code; to be confirmed |
+| 7. Checker trial | Done |
+| 8. Checking in the apps | Done: smaltui and smaltnb mark type errors as warnings |
+| 9–15. Speed in the page, TypeScript 7, coverage | Proposed in [ADR 0029](../adr/0029-after-the-checker-trial), waiting on the owner's gate D |
 
 Everything before 1.0 can change: [work in progress, come build with us](https://smaltworks.dev/stability).

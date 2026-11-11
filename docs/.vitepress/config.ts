@@ -64,6 +64,7 @@ export default defineConfig({
           { text: 'Decisions and order of work', link: '/DESIGN' },
           { text: 'Milestones', link: '/MILESTONES' },
           { text: 'Benchmarks', link: '/BENCHMARKS' },
+          { text: 'Decision records', link: '/adr/README' },
         ],
       },
     ],
