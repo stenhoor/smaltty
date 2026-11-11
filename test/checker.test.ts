@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { K, check, checkCache, expectations, parse } from 'smaltty';
-import { compareChecks, declarationsOf, globalsDeclaration } from './checking.ts';
+import { compareChecks, declarationsOf, DF_PACKAGES, globalsDeclaration, libsCorpus, mutants, smalttsCorpus } from './checking.ts';
 import { generatedScript } from '../bench/corpus.ts';
 
 const lib = `
@@ -133,11 +133,7 @@ scan();
 // ---------------------------------------------------------------------------------------------------------------
 // smaltts's reference examples, against a copy of smaltts's source (corpus/check/smaltts).
 
-const corpus = new URL('../corpus/check/smaltts/', import.meta.url);
-const smaltts = new Map<string, string>();
-for (const dir of ['src', 'examples']) {
-  for (const f of readdirSync(new URL(`${dir}/`, corpus)).sort()) if (f.endsWith('.ts')) smaltts.set(`/${dir}/${f}`, readFileSync(new URL(`${dir}/${f}`, corpus), 'utf8'));
-}
+const smaltts = smalttsCorpus();
 const examples = [...smaltts.keys()].filter((f) => f.startsWith('/examples/'));
 
 test("smaltts's examples as written: no errors from either", () => {
@@ -207,44 +203,6 @@ flag('yes');
   assert.equal(r.caught, r.tsc.length);
 });
 
-/** Every mutant of an example: one property misspelt, or one call with an argument more or none. */
-function mutants(name: string, text: string): [string, string][] {
-  const t = parse(text, { fileName: name });
-  const out: [string, string][] = [];
-  const edit = (start: number, end: number, insert: string, label: string) => out.push([`${name.slice(0, -3)}.${label}.${out.length}.ts`, text.slice(0, start) + insert + text.slice(end)]);
-  t.walk(t.root, (n) => {
-    if (t.kind[n] === K.PropertyAccessExpression) {
-      const id = t.next[t.first[n]!]!;
-      const word = t.textOf(id);
-      if (word.length > 2) edit(t.start[id]!, t.end[id]!, word.slice(0, -1), 'short');
-      edit(t.start[id]!, t.end[id]!, `${word}Zz`, 'long');
-    } else if (t.kind[n] === K.ObjectLiteralExpression) {
-      for (const p of t.children(n)) {
-        const id = t.first[p]!;
-        if (t.kind[p] !== K.PropertyAssignment || t.kind[id] !== K.Identifier) continue;
-        const word = t.textOf(id);
-        if (word.length > 2) edit(t.start[id]!, t.end[id]!, word.slice(0, -1), 'key');
-        edit(t.start[id]!, t.end[id]!, `${word}Zz`, 'keylong');
-        // A value of another type.
-        const value = t.next[id]!;
-        if (t.kind[value] === K.StringLiteral) edit(t.start[value]!, t.end[value]!, '0', 'value');
-        else if (t.kind[value] === K.NumericLiteral || t.kind[value] === K.TrueKeyword || t.kind[value] === K.FalseKeyword) edit(t.start[value]!, t.end[value]!, "'x'", 'value');
-      }
-    } else if (t.kind[n] === K.CallExpression) {
-      const args = t.children(n).slice(1);
-      // An argument of another type: a string for a number or boolean, a number for a string.
-      for (const a of args) {
-        const k = t.kind[a];
-        if (k === K.StringLiteral) edit(t.start[a]!, t.end[a]!, '0', 'type');
-        else if (k === K.NumericLiteral || k === K.TrueKeyword || k === K.FalseKeyword) edit(t.start[a]!, t.end[a]!, "'x'", 'type');
-      }
-      const close = t.end[n]! - 1;
-      edit(close, close, args.length ? ', 0' : '0', 'more');
-      if (args.length) edit(t.start[args[0]!]!, t.end[args[args.length - 1]!]!, '', 'none');
-    }
-  });
-  return out;
-}
 
 test("smaltts's examples mutated: every smaltty error is tsc's; how many of tsc's it catches", () => {
   const files = new Map([...smaltts].filter(([f]) => f.startsWith('/src/')));
@@ -301,11 +259,8 @@ new Box(1).sizes;
 });
 
 // smaltdf: its source in corpus/libs, under the paths its imports name, read by the apps and generated scripts.
-const smaltdf = new Map<string, string>();
-const libs = new URL('../corpus/libs/', import.meta.url);
-const others = new Map<string, string>();
-for (const f of readdirSync(libs).sort()) (f.startsWith('smaltdf-') ? smaltdf.set(`/df/${f.slice(8)}`, readFileSync(new URL(f, libs), 'utf8')) : others.set(`/libs/${f}`, readFileSync(new URL(f, libs), 'utf8')));
-const dfPackages = { '@smaltdb/df': '/df/index.ts' };
+const { smaltdf, others } = libsCorpus();
+const dfPackages = DF_PACKAGES;
 
 test('the corpus libraries (smaltdf, smaltnb, smaltkit, smaltui) as written: no false errors', () => {
   const r = compareChecks(new Map([...smaltdf, ...others]), { packages: dfPackages });

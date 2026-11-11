@@ -29,7 +29,8 @@ npm run docs:dev       # the docs site (docs/, VitePress); docs:build fails on d
   on any code (run it on the smalt repositories after a parser change). `node test/strip-sweep.ts <paths>` does the same
   for the stripper, against TypeScript's own transpile, and `node test/binding.ts <paths>` for the binder, against
   TypeScript's checker. `node test/checking.ts <project> [--package=name=path]` compares the checker with tsc on a
-  project's files.
+  project's files. `node test/tsrs.ts` adds tsrs, a Rust port of TypeScript 7's
+  checker, to that comparison, on the checker tests' mutants.
 - `corpus/` the input for tests and benchmarks ([corpus/README.md](corpus/README.md)). `bench/` the harness.
 - `docs/` is the docs site (VitePress, deployed to stenhoor.github.io/smaltty/ from `main` by `.github/workflows/docs.yml`):
   `guide/`, and [DESIGN.md](docs/DESIGN.md), [MILESTONES.md](docs/MILESTONES.md), [BENCHMARKS.md](docs/BENCHMARKS.md).
@@ -38,7 +39,8 @@ npm run docs:dev       # the docs site (docs/, VitePress); docs:build fails on d
 ## Rules for code here
 
 - TypeScript only: no Rust, no WASM. Output is plain ES2022 modules that load in a page without a bundler.
-- No run-time dependencies. sucrase and typescript may be dev dependencies for differential tests and benchmarks only.
+- No run-time dependencies. sucrase, typescript and tsrs (the owner's yes, 2026-11-11) may be dev dependencies for differential tests and
+  benchmarks only.
 - Speed comes first. Every change to the scanner, parser, stripper or binder is benchmarked against the tool it
   replaces, on the same work, and a slowdown is a regression.
 - Follow TypeScript, not sucrase: where they differ, TypeScript's behaviour is right (the owner's rule).
