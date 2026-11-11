@@ -11,6 +11,7 @@ import { gzipSync } from 'node:zlib';
 import ts from 'typescript';
 import { transform } from 'sucrase';
 import { bind, check, checkCache, parse, strip } from 'smaltty';
+import { tsrsChecks } from '../test/tsrs.ts';
 import { checkWorkloads, corpusFiles, generatedFiles, type CheckWorkload, type CorpusFile, type Group } from './corpus.ts';
 
 const quick = process.argv.includes('--quick');
@@ -213,10 +214,12 @@ line("One user file checked with the library it calls, read from source (smaltts
   "smaltty's `check()` against tsc (`strict`, `lib.es2022`) on the same files. **First check:** a fresh process, smaltty's modules " +
   'loaded, the first `check()` (median of runs). **Cold:** in a warmed-up process, nothing kept from the previous check. ' +
   '**After an edit:** the user file changed, the rest kept (smaltty: `checkCache()`; tsc: files kept and its previous program ' +
-  'reused, as an editor does). Milliseconds; the smaltts row is the median of its 14 examples, with the slowest in brackets.');
+  'reused, as an editor does). **tsrs:** tsrs (a Rust port of TypeScript 7\'s checker, `npm i tsrs`) on the same files, a fresh ' +
+  'process each time, as it has no API that keeps a program between checks; in brackets its own total time (`--extendedDiagnostics`), ' +
+  'without the process\'s start. Milliseconds; the smaltts row is the median of its 14 examples, with the slowest in brackets.');
 line();
-line('| Workload | smaltty first check | smaltty cold | tsc cold | smaltty after an edit | tsc after an edit |');
-line('| --- | ---: | ---: | ---: | ---: | ---: |');
+line('| Workload | smaltty first check | smaltty cold | tsc cold | tsrs: process (own time) | smaltty after an edit | tsc after an edit |');
+line('| --- | ---: | ---: | ---: | ---: | ---: | ---: |');
 {
   const workloads = checkWorkloads();
   const rows: { label: string; v: number[] }[] = [];
@@ -233,15 +236,18 @@ line('| --- | ---: | ---: | ---: | ---: | ---: |');
     const warm = { cache: new Map<string, ts.SourceFile>() };
     tscWorkload(w, edited(), warm);
     const tscEdit = time(() => tscWorkload(w, edited(), warm), 1500);
-    rows.push({ label: w.label, v: [first, cold, tscCold, smEdit, tscEdit] });
+    // tsrs (a Rust port of TypeScript 7's checker) runs as a process: no API to keep a program between checks.
+    const tsrsRuns = Array.from({ length: quick ? 1 : 5 }, () => tsrsChecks(w.files, { roots: [w.root], packages: w.packages })).sort((a, b) => a.ms - b.ms);
+    const tsrsRun = tsrsRuns[tsrsRuns.length >> 1]!;
+    rows.push({ label: w.label, v: [first, cold, tscCold, tsrsRun.ms, smEdit, tscEdit, tsrsRun.totalMs] });
   });
   const smaltts = rows.filter((r) => r.label.startsWith('smaltts '));
   const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[xs.length >> 1]!;
   const cell = (j: number) => `${fmt(median(smaltts.map((r) => r.v[j]!)))} (${fmt(Math.max(...smaltts.map((r) => r.v[j]!)))})`;
-  line(`| smaltts's reference and guide examples (${smaltts.length}) | ${cell(0)} | **${cell(1)}** | ${cell(2)} | **${cell(3)}** | ${cell(4)} |`);
+  line(`| smaltts's reference and guide examples (${smaltts.length}) | ${cell(0)} | **${cell(1)}** | ${cell(2)} | ${cell(3)} (${fmt(median(smaltts.map((r) => r.v[6]!)))}) | **${cell(4)}** | ${cell(5)} |`);
   for (const r of rows.filter((r) => !r.label.startsWith('smaltts '))) {
-    const [first, cold, tscCold, smEdit, tscEdit] = r.v.map(fmt);
-    line(`| ${r.label.replace(/^smaltdf (.*)$/, 'smaltdf: `$1`')} | ${first} | **${cold}** | ${tscCold} | **${smEdit}** | ${tscEdit} |`);
+    const [first, cold, tscCold, tsrs, smEdit, tscEdit, tsrsOwn] = r.v.map(fmt);
+    line(`| ${r.label.replace(/^smaltdf (.*)$/, 'smaltdf: `$1`')} | ${first} | **${cold}** | ${tscCold} | ${tsrs} (${tsrsOwn}) | **${smEdit}** | ${tscEdit} |`);
   }
 }
 line();
