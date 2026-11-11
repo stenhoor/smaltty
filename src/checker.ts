@@ -19,6 +19,7 @@ import { F, K, isTypeNode } from './kinds.js';
 import { bind, type Bindings } from './binder.js';
 import { parse } from './parser.js';
 import type { Tree } from './tree.js';
+import { BUILTINS, BUILTINS_PATH } from './builtins.js';
 
 export interface Diagnostic {
   readonly file: string;
@@ -132,6 +133,18 @@ const OBJECT_MEMBERS = new Set(['constructor', 'toString', 'toLocaleString', 'va
 
 const PRIMITIVE_KINDS = new Set([K.StringKeyword, K.NumberKeyword, K.BooleanKeyword, K.BigIntKeyword, K.SymbolKeyword]);
 
+/** A literal's type widened, as an array literal's elements are: `'a'` is a string, `true` a boolean. */
+function widen(type: Type): Type {
+  if (type.k === 'keys') return { k: 'primitive', kind: 'string' };
+  if (type.k === 'bool') return { k: 'primitive', kind: 'boolean' };
+  return type;
+}
+
+/** The same primitive kind (other types are never taken as the same). */
+function sameType(a: Type, b: Type): boolean {
+  return a.k === 'primitive' && b.k === 'primitive' && a.kind === b.kind && a.kind !== undefined;
+}
+
 /** A union, flattened; all string literals stay a set of keys. */
 function union(parts: readonly Type[]): Type {
   const flat = parts.flatMap((p) => (p.k === 'union' ? p.parts : [p]));
@@ -188,7 +201,7 @@ class Checker {
 
   private source(path: string): SourceInfo | undefined {
     if (!this.sources.has(path)) {
-      const text = this.files.get(path);
+      const text = path === BUILTINS_PATH ? BUILTINS : this.files.get(path);
       let info: SourceInfo | null = null;
       if (text !== undefined) {
         try {
@@ -542,6 +555,7 @@ class Checker {
 
   /** The first property of an object literal that `target` doesn't have, nested literals included. */
   private excessProperty(f: SourceInfo, literal: number, target: Type, values = true): Diagnostic | undefined {
+    if (target.k !== 'object' && target.k !== 'record' && target.k !== 'intersection') return undefined;
     const t = f.tree;
     const props = this.propsOf(target);
     if (!props || props.open) return undefined;
@@ -652,8 +666,38 @@ class Checker {
       case K.ThisKeyword:
         return this.typeOfThis(f, n);
       case K.NewExpression: {
-        const callee = this.typeOfExpr(f, t.first[n]!);
-        return callee.k === 'class' ? this.instanceOf(callee.decl, []) : UNKNOWN;
+        const callee = t.first[n]!;
+        // A built-in class (`new Map<string, number>()`), with its explicit type arguments.
+        if (t.kind[callee] === K.Identifier && !this.declarationOf(f, callee)) {
+          const args = this.childrenOf(t, n).slice(1).filter((c) => isTypeNode(t.kind[c]!)).map((c) => this.typeOfNode(f, c, NO_ENV));
+          const name = t.textOf(callee);
+          return name === 'Array' ? { k: 'array', element: args[0] ?? UNKNOWN } : this.builtinDecl(name) ? this.builtin(name, args) : UNKNOWN;
+        }
+        const type = this.typeOfExpr(f, callee);
+        return type.k === 'class' ? this.instanceOf(type.decl, []) : UNKNOWN;
+      }
+      case K.ArrayLiteralExpression: {
+        // As tsc: the elements' types, widened (a string literal is a string), or unknown with a spread or none.
+        const elements = this.childrenOf(t, n);
+        if (!elements.length || elements.some((e) => t.kind[e] === K.SpreadElement || t.kind[e] === K.OmittedExpression)) return { k: 'array', element: UNKNOWN };
+        // tsc keeps literal types where the array has a contextual type (an argument, a property value, an annotated
+        // variable), and widens them where it hasn't (a plain variable, a method's receiver).
+        const parent = f.bindings.parent[n]!;
+        const pk = t.kind[parent];
+        const free = (pk === K.VariableDeclaration && !this.annotationOf(t, parent)) || (pk === K.PropertyAccessExpression && t.first[parent] === n);
+        const types = elements.map((e) => (free ? widen(this.typeOfExpr(f, e)) : this.typeOfExpr(f, e)));
+        const distinct = types.filter((x, i) => types.findIndex((y) => sameType(x, y)) === i);
+        return { k: 'array', element: distinct.length === 1 ? distinct[0]! : union(distinct) };
+
+      }
+      case K.AwaitExpression: {
+        const type = this.typeOfExpr(f, t.first[n]!);
+        if (type.k === 'object' && type.decls.some((d) => d.file.path === BUILTINS_PATH && d.file.tree.textOf(d.file.tree.first[d.node]!) === 'Promise')) {
+          const p = this.builtinDecl('Promise')!;
+          const tp = this.childrenOf(p.file.tree, p.node).find((c) => p.file.tree.kind[c] === K.TypeParameter)!;
+          return type.env.get(`${p.file.path}:${tp}`) ?? UNKNOWN;
+        }
+        return type.k === 'primitive' || type.k === 'keys' || type.k === 'bool' || type.k === 'array' || type.k === 'record' ? type : UNKNOWN;
       }
       case K.PropertyAccessExpression: {
         const object = this.typeOfExpr(f, t.first[n]!);
@@ -728,7 +772,8 @@ class Checker {
   /** The type of a value a name refers to. */
   private valueOfName(f: SourceInfo, name: number): Type {
     const decl = this.declarationOf(f, name);
-    return decl ? this.valueOfDecl(decl) : UNKNOWN;
+    if (decl) return this.valueOfDecl(decl);
+    return f.path === BUILTINS_PATH ? UNKNOWN : this.builtinValue(f.tree.textOf(name));
   }
 
   /** The declaration node an Identifier refers to, in its own file. */
@@ -1232,9 +1277,35 @@ class Checker {
     return env;
   }
 
-  /** The built-in generic types that only rearrange keys; anything else is unknown. */
+  /** A built-in interface (builtins.ts), by name. */
+  private builtinDecl(name: string): Decl | undefined {
+    const f = this.source(BUILTINS_PATH);
+    if (!f) return undefined;
+    const t = f.tree;
+    for (let s = t.first[t.root]!; s; s = t.next[s]!) {
+      if (t.kind[s] === K.InterfaceDeclaration && t.textOf(t.first[s]!) === name) return { file: f, node: s };
+    }
+    return undefined;
+  }
+
+  /** A built-in value (`Math`, `JSON`), by name. */
+  private builtinValue(name: string): Type {
+    const f = this.source(BUILTINS_PATH);
+    if (!f) return UNKNOWN;
+    const t = f.tree;
+    for (let s = t.first[t.root]!; s; s = t.next[s]!) {
+      if (t.kind[s] !== K.VariableStatement) continue;
+      for (const list of this.childrenOf(t, s)) for (const v of this.childrenOf(t, list)) if (t.textOf(t.first[v]!) === name) return this.valueOfDecl({ file: f, node: v });
+    }
+    return UNKNOWN;
+  }
+
+  /** The built-in types by name: arrays, the interfaces of builtins.ts, and the generics that only rearrange keys. */
   private builtin(name: string, args: readonly Type[]): Type {
     const [a, b] = args;
+    if (name === 'Array' || name === 'ReadonlyArray') return { k: 'array', element: a ?? UNKNOWN };
+    const decl = this.builtinDecl(name);
+    if (decl) return this.instanceOf(decl, args);
     switch (name) {
       case 'Readonly':
       case 'Partial':
@@ -1345,6 +1416,19 @@ class Checker {
       }
       case 'record':
         return { names: type.props, open: false };
+      case 'array': {
+        const decl = this.builtinDecl('Array');
+        return decl ? this.propsOf(this.instanceOf(decl, [type.element])) : undefined;
+      }
+      case 'primitive':
+      case 'keys':
+      case 'bool': {
+        // A primitive's members are its wrapper's.
+        const kind = type.k === 'keys' ? 'string' : type.k === 'bool' ? 'boolean' : type.kind;
+        const wrapper = kind === 'string' ? 'String' : kind === 'number' ? 'Number' : kind === 'boolean' ? 'Boolean' : undefined;
+        const decl = wrapper ? this.builtinDecl(wrapper) : undefined;
+        return decl ? this.propsOf(this.instanceOf(decl, [])) : undefined;
+      }
       case 'intersection': {
         const names = new Map<string, () => Type>();
         let open = false;
@@ -1366,6 +1450,7 @@ class Checker {
 
   /** The names `keyof` a type gives, when they are all known. */
   private keysOf(type: Type): string[] | undefined {
+    if (type.k !== 'object' && type.k !== 'record' && type.k !== 'intersection') return undefined;
     const props = this.propsOf(type);
     return props && !props.open ? [...props.names.keys()] : undefined;
   }
@@ -1472,7 +1557,10 @@ class Checker {
     if (kind === K.PropertyDeclaration || kind === K.PropertySignature || kind === K.Parameter) {
       if (decls.length !== 1) return UNKNOWN;
       const type = this.annotationOf(t, first.node);
-      return type !== undefined ? this.typeOfNode(first.file, type, env) : UNKNOWN;
+      if (type !== undefined) return this.typeOfNode(first.file, type, env);
+      // A class property without an annotation takes its initializer's type, widened as tsc does.
+      const init = kind === K.PropertyDeclaration ? this.childrenOf(t, first.node).slice(1).find((c) => !isTypeNode(t.kind[c]!)) : undefined;
+      return init !== undefined ? widen(this.typeOfExpr(first.file, init)) : UNKNOWN;
     }
     return UNKNOWN; // accessors: not modelled yet
   }
@@ -1489,7 +1577,6 @@ class Checker {
     const t = sig.decl.file.tree;
     const type = this.returnNodeOf(sig.decl);
     if (type === undefined) return UNKNOWN;
-    if (t.flags[sig.decl.node]! & F.Async) return UNKNOWN; // a Promise: the built-in types aren't modelled yet
     return this.typeOfNode(sig.decl.file, type, sig.env);
   }
 
