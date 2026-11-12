@@ -27,7 +27,7 @@ features:
     link: /guide/binding
     linkText: Binding names
   - title: Fast and small
-    details: Faster than sucrase at stripping, a twentieth of the compiler's time at binding, 35 KB gzipped, and no outside code.
+    details: 35 KB gzipped and no outside code, in plain ES2022 modules that load in a page without a bundler. Every change is benchmarked.
     link: /BENCHMARKS
     linkText: Benchmarks
 ---
