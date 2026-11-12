@@ -27,7 +27,7 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "prepare": "npm run build",
-    "typecheck": "tsc -p .",
+    "typecheck": "node node_modules/typescript7/bin/tsc -p .",
     "test": "npm run build && node --test test/*.test.ts",
     "bench": "npm run build && node bench/run.ts",
     "bench:page": "npm run build && node bench/page.ts",
@@ -41,7 +41,8 @@
     "@types/node": "^22.0.0",
     "sucrase": "3.35.1",
     "tsrs": "0.24.0-ts7.1.0-beta",
-    "typescript": "5.9.3",
+    "typescript": "6.0.3",
+    "typescript7": "npm:typescript@~7.0.2",
     "vitepress": "^1.6.4"
   }
 }
