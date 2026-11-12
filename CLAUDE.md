@@ -4,9 +4,10 @@ smaltty is a TypeScript kit with no outside code: a parser, a type stripper, sco
 for TypeScript written against smaltdf and smaltts (smaltts's TypeScript tooling is smaltty: owner's decision,
 2026-11-10). It replaces sucrase in smaltui and the TypeScript compiler in smaltnb. smaltkit
 wraps it for the apps. Read [docs/DESIGN.md](docs/DESIGN.md) first: it holds the owner's decisions and their order.
-Milestones 1–8 are done (through the checker and checking in the apps); milestones 9–15 were decided at gate D
-(2026-11-12) in docs/adr/0029-after-the-checker-trial.md, with how they reach consumers in
-docs/adr/0030-changing-smaltty-without-breaking-its-consumers.md; milestone 9 is next. See docs/MILESTONES.md.
+Milestones 1–9 are done (through the checker, checking in the apps, and TypeScript 7 as the checker's reference;
+9's release, 0.10.0, is not tagged yet); milestones 9–15 were decided at gate D (2026-11-12) in
+docs/adr/0029-after-the-checker-trial.md, with how they reach consumers in
+docs/adr/0030-changing-smaltty-without-breaking-its-consumers.md; milestone 10 is next. See docs/MILESTONES.md.
 Several Claude Code sessions work on the smalt repos in parallel and cannot see each other: this file is the shared
 starting point, and its working rules match smaltdb's `CLAUDE.md`.
 
@@ -14,12 +15,14 @@ starting point, and its working rules match smaltdb's `CLAUDE.md`.
 
 ```bash
 npm install            # prepare builds dist/ (tsc -p tsconfig.build.json)
-npm run typecheck      # tsc --noEmit, strict and erasableSyntaxOnly, over src/, test/ and bench/
+npm run typecheck      # TypeScript 7's tsc (--noEmit, strict, erasableSyntaxOnly) over src/, test/ and bench/;
+                       # plain `tsc` is typescript 6.0.3's, which builds dist/
 npm test               # build, then node --test test/*.test.ts (the corpus checks among them)
 npm run test:self      # the same tests, with .ts files stripped by smaltty instead of Node (test/register.mjs)
 npm run bench          # the benchmark tables in docs/BENCHMARKS.md; --quick checks the harness only
 npm run bench:page     # the checkers in a page (Chromium; Playwright through NODE_PATH): smaltty and tsrs's WASM build
 npm run docs:dev       # the docs site (docs/, VitePress); docs:build fails on dead links (CI runs it)
+NODE_PATH=$(npm root -g) node scripts/downstream.mjs   # the downstream check: the consumers' tests on this smaltty
 ```
 
 ## Repo map
@@ -32,9 +35,12 @@ npm run docs:dev       # the docs site (docs/, VitePress); docs:build fails on d
 - `test/compare.ts` flattens both trees for comparison; `node test/sweep.ts <paths>` compares the parser with TypeScript
   on any code (run it on the smalt repositories after a parser change). `node test/strip-sweep.ts <paths>` does the same
   for the stripper, against TypeScript's own transpile, and `node test/binding.ts <paths>` for the binder, against
-  TypeScript's checker. `node test/checking.ts <project> [--package=name=path]` compares the checker with tsc on a
-  project's files. `node test/tsrs.ts` adds tsrs, a Rust port of TypeScript 7's
-  checker, to that comparison, on the checker tests' mutants.
+  TypeScript's checker (all three on `typescript` 6.0.3's API). `node test/checking.ts <project>
+  [--package=name=path]` compares the checker with TypeScript 7's `tsc` (the reference since milestone 9) on a
+  project's files. `node test/tsrs.ts` adds tsrs (a Rust port of TypeScript 7.1 beta's checker) and TypeScript 6.0 to
+  that comparison, on the checker tests' mutants; `--misses` counts what smaltty misses, by code.
+- `scripts/downstream.mjs` (run daily by `.github/workflows/downstream.yml`): smaltkit's, smaltts's, smaltui's and
+  smaltnb's own tests, the apps' e2e in Chromium, against this smaltty. A release is tagged only with it green.
 - `corpus/` the input for tests and benchmarks ([corpus/README.md](corpus/README.md)). `bench/` the harness.
 - `docs/` is the docs site (VitePress, deployed to stenhoor.github.io/smaltty/ from `main` by `.github/workflows/docs.yml`):
   `guide/`, `adr/` (decision records, numbered with all smalt ADRs), and [DESIGN.md](docs/DESIGN.md),
@@ -47,8 +53,9 @@ npm run docs:dev       # the docs site (docs/, VitePress); docs:build fails on d
 - No run-time dependencies. sucrase, typescript, tsrs and @tsrs/wasm (the owner's yes, 2026-11-11) may be dev dependencies for
   differential tests and benchmarks only; from milestone 9, `typescript` 6.0.3 for its API and TypeScript 7 under an
   npm alias, run by its own name, while `tsc` stays 6.0.3's (the owner's yes, 2026-11-12, ADR 0029).
-- Releases: a tag per milestone with `CHANGELOG.md`, and only with the downstream check green (ADR 0030). New
-  behaviour comes as an option, off by default; a default changes only in a release that says so.
+- Releases: a tag per milestone with `CHANGELOG.md`, and only with the downstream check green (ADR 0030). Versions
+  follow the smalt family's (the owner's decision, 2026-11-12): 0.9.0 shipped in smaltworks 0.9.0, milestone 9 is
+  0.10.0. New behaviour comes as an option, off by default; a default changes only in a release that says so.
 - Speed comes first. Every change to the scanner, parser, stripper or binder is benchmarked against the tool it
   replaces, on the same work, and a slowdown is a regression.
 - Follow TypeScript, not sucrase: where they differ, TypeScript's behaviour is right (the owner's rule).

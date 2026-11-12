@@ -23,13 +23,14 @@ Times are medians after warm-up, in milliseconds. What is measured, and why:
 - **smaltty parse + bind:** the parse, then the binder resolving every name (milestone 5): the same work as the
   compiler's "parse + resolve names" column.
 - **Full type check:** a reference for phase 1 only. Nothing smaltty builds before gate B is compared with it.
-- **Checking:** one user file and the library it calls, with smaltty's checker, with tsc, cold and after an edit, and
-  with tsrs (a Rust port of TypeScript 7's checker, `tsrs` on npm) as a process.
+- **Checking:** one user file and the library it calls, with smaltty's checker, with tsc 6.0 through its API, cold and
+  after an edit, and with TypeScript 7's `tsc` and tsrs (a Rust port of TypeScript 7's checker, `tsrs` on npm) as
+  processes: neither has an API that keeps a program between checks.
 - **Loading:** from a fresh process to the first stripped line. smaltnb pays the compiler's load when its kernel starts.
 
-## Latest run: tsrs added, 2026-11-11
+## Latest run: TypeScript 7 added, 2026-11-12
 
-Node v22.23.4, linux x64, Intel(R) Xeon(R) Processor @ 2.10GHz (4 threads). sucrase 3.35.1, typescript 5.9.3.
+Node v22.23.4, linux x64, Intel(R) Xeon(R) Processor @ 2.10GHz (4 threads). sucrase 3.35.1, typescript 6.0.3, TypeScript 7 7.0.2, tsrs 0.24.0-ts7.1.0-beta.
 
 ### Stripping and name analysis
 
@@ -37,43 +38,43 @@ Median milliseconds to process the whole group once, on the files every tool acc
 
 | Corpus | Files | Size (KB) | sucrase strip | `transpileModule` | smaltty strip | TypeScript parse | smaltty parse | Parse + resolve names (smaltnb) | smaltty parse + bind |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| App code (smaltui tabs, smaltnb notebooks) | 4 | 2.9 | 0.156 | 5.53 | **0.105** | 0.318 | **0.150** | 3.32 | **0.126** |
-| Library code (smaltdf, smaltnb, smaltkit, smaltui) | 13 | 125 | 16.52 | 140 | **9.26** | 19.84 | **5.11** | 137 | **8.51** |
-| Syntax edge cases | 6 | 7.8 | 0.937 | 13.43 | **0.603** | 2.28 | **0.463** | 9.21 | **1.30** |
-| Generated script, 40 KB | 1 | 39 | 4.69 | 42.29 | **3.76** | 10.38 | **1.70** | 57.45 | **2.50** |
-| Generated script, 400 KB | 1 | 391 | 75.99 | 332 | **28.44** | 80.98 | **27.36** | 938 | **41.76** |
+| App code (smaltui tabs, smaltnb notebooks) | 4 | 2.9 | 0.136 | 4.28 | **0.073** | 0.231 | **0.073** | 4.64 | **0.102** |
+| Library code (smaltdf, smaltnb, smaltkit, smaltui) | 13 | 125 | 10.91 | 104 | **5.01** | 16.61 | **3.96** | 105 | **6.07** |
+| Syntax edge cases | 6 | 7.8 | 0.833 | 14.81 | **0.508** | 1.57 | **0.374** | 10.32 | **0.585** |
+| Generated script, 40 KB | 1 | 39 | 2.78 | 27.27 | **1.96** | 6.36 | **1.35** | 45.68 | **2.14** |
+| Generated script, 400 KB | 1 | 391 | 66.99 | 253 | **19.17** | 69.91 | **14.60** | 700 | **18.54** |
 
 ### App code, per file
 
 | File | Size (bytes) | sucrase strip | `transpileModule` | smaltty strip | smaltty parse | Parse + resolve names | smaltty parse + bind |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `apps/smaltnb-regional.nb.ts` | 1147 | 0.071 | 1.95 | **0.083** | **0.074** | 1.26 | **0.108** |
-| `apps/smaltnb-shop.nb.ts` | 945 | 0.063 | 0.980 | **0.048** | **0.043** | 1.05 | **0.057** |
-| `apps/smaltui-demo-frames.ts` | 719 | 0.030 | 0.986 | **0.020** | **0.018** | 0.458 | **0.025** |
-| `apps/smaltui-starter.ts` | 190 | 0.007 | 0.385 | **0.004** | **0.005** | 0.156 | **0.008** |
+| `apps/smaltnb-regional.nb.ts` | 1147 | 0.055 | 1.54 | **0.044** | **0.037** | 1.71 | **0.049** |
+| `apps/smaltnb-shop.nb.ts` | 945 | 0.032 | 1.23 | **0.024** | **0.021** | 0.873 | **0.028** |
+| `apps/smaltui-demo-frames.ts` | 719 | 0.025 | 0.843 | **0.016** | **0.014** | 0.591 | **0.020** |
+| `apps/smaltui-starter.ts` | 190 | 0.003 | 0.510 | **0.003** | **0.003** | 0.134 | **0.003** |
 
 ### Full type check (reference for phase 1)
 
-`strict`, `lib.es2022`, `skipLibCheck`, one file. Cold reads, parses and binds the lib files every time; warm keeps them and reuses the previous program, as an editor does between edits.
+`strict`, `lib.es2022`, `skipLibCheck`, one file. tsc 6.0.3 through its API: cold reads, parses and binds the lib files every time; warm keeps them and reuses the previous program, as an editor does between edits. TypeScript 7 (7.0.2, the Go compiler): its `tsc` command on the same file, a fresh process each time (it has no API that keeps a program), median of runs; in brackets its own total time (`--extendedDiagnostics`), without the process's start.
 
-| File | Cold | Warm |
-| --- | ---: | ---: |
-| `apps/smaltnb-regional.nb.ts` | 68.39 | 5.73 |
-| `apps/smaltnb-shop.nb.ts` | 52.84 | 2.43 |
-| `apps/smaltui-demo-frames.ts` | 63.10 | 2.21 |
-| `apps/smaltui-starter.ts` | 55.93 | 1.61 |
-| `generated/40k.ts` | 149 | 76.81 |
+| File | tsc cold | tsc warm | TypeScript 7: process (own time) |
+| --- | ---: | ---: | ---: |
+| `apps/smaltnb-regional.nb.ts` | 43.36 | 5.36 | 40.26 (24.00) |
+| `apps/smaltnb-shop.nb.ts` | 40.06 | 2.15 | 35.38 (18.00) |
+| `apps/smaltui-demo-frames.ts` | 36.18 | 1.75 | 33.03 (19.00) |
+| `apps/smaltui-starter.ts` | 33.77 | 1.24 | 33.83 (17.00) |
+| `generated/40k.ts` | 107 | 64.85 | 48.72 (32.00) |
 
 ### Checking
 
-One user file checked with the library it calls, read from source (smaltts's 16 files, 184 KB; smaltdf's 9, 85 KB): smaltty's `check()` against tsc (`strict`, `lib.es2022`) on the same files. **First check:** a fresh process, smaltty's modules loaded, the first `check()` (median of runs). **Cold:** in a warmed-up process, nothing kept from the previous check. **After an edit:** the user file changed, the rest kept (smaltty: `checkCache()`; tsc: files kept and its previous program reused, as an editor does). **tsrs:** tsrs (a Rust port of TypeScript 7's checker, `npm i tsrs`) on the same files, a fresh process each time, as it has no API that keeps a program between checks; in brackets its own total time (`--extendedDiagnostics`), without the process's start. Milliseconds; the smaltts row is the median of its 14 examples, with the slowest in brackets.
+One user file checked with the library it calls, read from source (smaltts's 16 files, 184 KB; smaltdf's 9, 85 KB): smaltty's `check()` against tsc (`strict`, `lib.es2022`) on the same files. **First check:** a fresh process, smaltty's modules loaded, the first `check()` (median of runs). **Cold:** in a warmed-up process, nothing kept from the previous check. **After an edit:** the user file changed, the rest kept (smaltty: `checkCache()`; tsc: files kept and its previous program reused, as an editor does). **tsrs:** tsrs (a Rust port of TypeScript 7's checker, `npm i tsrs`) on the same files, a fresh process each time, as it has no API that keeps a program between checks; in brackets its own total time (`--extendedDiagnostics`), without the process's start. **TypeScript 7:** its `tsc` command (the Go compiler) the same way, with `lib.es2022`. Milliseconds; the smaltts row is the median of its 14 examples, with the slowest in brackets.
 
-| Workload | smaltty first check | smaltty cold | tsc cold | tsrs: process (own time) | smaltty after an edit | tsc after an edit |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| smaltts's reference and guide examples (14) | 76.45 (103) | **8.25 (13.19)** | 148 (177) | 93.16 (104) (31.00) | **0.595 (1.08)** | 21.28 (30.56) |
-| smaltdf: `smaltnb-regional.nb.ts` | 40.62 | **3.69** | 76.91 | 76.80 (21.00) | **0.328** | 6.69 |
-| smaltdf: `smaltnb-shop.nb.ts` | 54.39 | **4.25** | 96.35 | 77.75 (22.00) | **0.336** | 3.94 |
-| smaltdf: `generated/40k.ts` | 157 | **31.34** | 224 | 83.20 (25.00) | **27.38** | 70.59 |
+| Workload | smaltty first check | smaltty cold | tsc cold | TypeScript 7: process (own time) | tsrs: process (own time) | smaltty after an edit | tsc after an edit |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| smaltts's reference and guide examples (14) | 57.23 (71.98) | **6.84 (9.11)** | 114 (125) | 124 (150) (96.00) | 76.74 (99.56) (28.00) | **0.394 (0.715)** | 18.55 (25.17) |
+| smaltdf: `smaltnb-regional.nb.ts` | 25.44 | **1.98** | 47.93 | 70.63 (48.00) | 66.91 (20.00) | **0.144** | 6.12 |
+| smaltdf: `smaltnb-shop.nb.ts` | 37.07 | **3.53** | 69.59 | 81.01 (53.00) | 64.12 (17.00) | **0.142** | 3.80 |
+| smaltdf: `generated/40k.ts` | 98.47 | **23.09** | 155 | 94.36 (67.00) | 74.78 (19.00) | **20.90** | 75.30 |
 
 ### Loading and size
 
@@ -81,26 +82,52 @@ Loading: a fresh process, from first use to the first stripped line, median of r
 
 | Tool | Load (ms) | Size | Gzipped |
 | --- | ---: | ---: | ---: |
-| sucrase (as `@smaltworks/smaltdb-sucrase` bundles it) | 48.90 | ~200 KB | ~48 KB |
-| TypeScript compiler (`lib/typescript.js`) | 259 | 8899 KB | 1606 KB |
-| smaltty (`dist/*.js`) | 16.68 | 274 KB | 55 KB |
+| sucrase (as `@smaltworks/smaltdb-sucrase` bundles it) | 36.14 | ~200 KB | ~48 KB |
+| TypeScript compiler (`lib/typescript.js`) | 185 | 8930 KB | 1611 KB |
+| smaltty (`dist/*.js`) | 13.66 | 277 KB | 55 KB |
 
 sucrase's bundled size is from smaltdb-sucrase's README (an esbuild bundle of sucrase and its dependencies); smaltty doesn't bundle sucrase to measure it.
 
 ### Checking: which errors each reports
 
-`node test/tsrs.ts`: the checker tests' mutants (a property misspelt, an argument more or fewer or of another type, an
-option key or value changed), checked by tsc 5.9 (the reference the tests use), by tsrs 0.24.0 (TypeScript 7.1 beta's
-checker, ported to Rust) and by smaltty, with the same files and options. Errors of the codes smaltty checks (2339, 2551,
-2554, 2555, 2353, 2561, 2345, 2322), the same file, position and code as tsc's. A mutant with a syntax error is left
-out: tsrs, like tsc's command line, checks nothing else in a program with one. Same message: the first line of the
-message is tsc's.
+`node test/tsrs.ts --misses`: the checker tests' mutants (a property misspelt, an argument more or fewer or of another
+type, an option key or value changed), checked by TypeScript 7.0 (its `tsc` command, the reference the tests use since
+milestone 9), by smaltty, by tsrs 0.24.0 (TypeScript 7.1 beta's checker, ported to Rust) and by TypeScript 6.0 (its
+API, the reference's line before: 5.9's until milestone 9), with the same files and options. Errors of the codes
+smaltty checks (2339, 2551, 2554, 2555, 2353, 2561, 2345, 2322), the same file, position and code as TypeScript 7's. A
+mutant with a syntax error is left out: a command-line checker reports nothing else in a program with one. Same
+message: the whole message, its chain included, is TypeScript 7's.
 
-| Mutants | tsc 5.9 errors | tsrs: same as tsc | tsrs: other | smaltty: same as tsc | smaltty: other | same message: tsrs, smaltty | tsrs process (ms) |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| smaltts's examples, mutated (1076 of 1076) | 1050 | 1050 | 0 | 670 | 0 | 993, 389 | 199 |
-| smaltdf's API in a generated script, mutated (560 of 565) | 370 | 370 | 0 | 325 | 0 | 370, 265 | 252 |
-| smaltui's tabs (smaltdf as globals), mutated (116 of 118) | 38 | 38 | 0 | 37 | 0 | 38, 37 | 90 |
+| Mutants | TypeScript 7.0.2 errors | smaltty: same as 7 | smaltty: other | smaltty: message differs | tsrs: same as 7 | tsrs: other | TypeScript 6.0.3: same as 7 | 6.0.3: other | same message: smaltty, tsrs, 6.0.3 | tsrs process (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| smaltts's examples, mutated (1076 of 1076) | 1050 | 670 | 0 | 170 | 1050 | 0 | 1050 | 0 | 500, 1003, 1036 | 201 |
+| smaltdf's API in a generated script, mutated (560 of 565) | 370 | 325 | 0 | 60 | 370 | 0 | 370 | 0 | 265, 370, 370 | 278 |
+| smaltui's tabs (smaltdf as globals), mutated (116 of 118) | 38 | 37 | 0 | 0 | 38 | 0 | 38 | 0 | 37, 38, 38 | 72 |
+
+TypeScript 7's errors smaltty misses, of every code, on the same mutants (all three sets), not counting an error the
+unmutated file has too (the same code and message): the order of milestone 14's work.
+
+| Code | Missed | Checked by smaltty |
+| ---: | ---: | --- |
+| 7006 | 75 | no |
+| 2551 | 47 | yes |
+| 2559 | 45 | no |
+| 2345 | 41 | yes |
+| 2554 | 40 | yes |
+| 2561 | 24 | yes |
+| 2322 | 9 | yes |
+| 7005 | 8 | no |
+| 2339 | 7 | yes |
+| 2820 | 4 | no |
+| 2769 | 3 | no |
+| 7034 | 3 | no |
+
+7006 and 7005 are implicit `any`s where a mutant took away the argument that typed a callback; 2559 a value with no
+property in common with the parameter's type; 2820 a string literal with a suggestion; 2769 no overload matching.
+
+On TypeScript 5.9 (2026-11-11, the table this one replaces): the same errors at the same places in all three sets
+(1,050, 370 and 38), and smaltty catching the same 670, 325 and 37. In the checker tests, 250 messages differ from
+TypeScript 7's, as 250 did from 5.9's.
 
 ### Checking in a page
 
@@ -130,6 +157,25 @@ Errors of the checked codes found (all workloads as written): smaltty 0, tsrs 3.
 
 The 3 errors tsrs finds are tsc's too (tsc 5.9 reports the same three, in two of smaltts's examples as the corpus holds
 them); smaltty reports none of them, as it may: it reports only what tsc does, not all of it.
+
+### What milestone 9 says
+
+- **TypeScript 7 reports what 5.9 and 6.0 report, on what smaltty checks.** On the 1,752 mutants all of them check,
+  TypeScript 7.0's errors of the checked codes are 6.0's and 5.9's, at the same places; so smaltty's share is
+  unchanged (smaltts's mutants 78%, smaltdf's 88%, the tabs' 97%), with no false errors. The messages differ in 14 of
+  smaltts's 1,050 between 6.0 and 7.0, and in 47 between 7.0 and tsrs (7.1 beta): not on errors where smaltty's message
+  was right, so the 250 that differ in the checker tests are still 250, now counted against 7.
+- **What smaltty misses, by code.** Of TypeScript 7's errors that the mutations bring, beyond what the unmutated files
+  have, smaltty misses 306: 168 of the codes it checks (2551, 2345, 2554 and 2561 first, mostly knock-on errors further
+  down a file), and 138 of codes it doesn't (implicit `any`s, 7006 and 7005, where a callback lost the argument that
+  typed it; 2559, no property in common). Milestone 14 starts from this table.
+- **TypeScript 7 doesn't check faster than tsc 6.0 on these files; it starts faster.** A one-file check takes 33–40 ms
+  as a process (17–24 ms of its own), about tsc 6.0's cold check through its API; on the 40 KB script 49 ms against
+  107 ms. With the libraries smaltts's examples read (184 KB of source), its own time is 96 ms, more than tsrs's 28 ms
+  and close to its whole process time, against smaltty's 6.8 ms cold. It has no API to keep a program between checks,
+  so every check is a cold one: the editor's case stays smaltty's (0.1–0.7 ms after an edit) and tsc 6.0's (4–25 ms).
+- **No change to smaltty's speed.** Milestone 9 changes no scanner, parser, stripper or binder code; the tables above are
+  this machine's run of the same code, with only the comparison tools changed.
 
 ### What adding tsrs says
 
