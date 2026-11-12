@@ -2,9 +2,13 @@
 layout: home
 
 hero:
-  name: 'sm<span class="alt">alt</span><span class="suffix kit">ty</span>'
-  text: The TypeScript kit
-  tagline: TypeScript for the smalt apps, in our own code. It parses, strips and binds TypeScript in the browser, with no dependencies.
+  name: 'sm<span class="alt">alt</span><span class="suffix family">ty</span>'
+  text: 'Small. Alternative.<br>Code.'
+  tagline: TypeScript for the smalt apps. smaltty is smalt's own implementation of TypeScript, a top-level smalt product. It parses, strips, binds and type-checks TypeScript in the browser, with no dependencies.
+  image:
+    light: /grain-mark.svg
+    dark: /grain-mark-on-dark.svg
+    alt: smaltty
   actions:
     - theme: brand
       text: Getting started
@@ -23,7 +27,7 @@ features:
     link: /guide/binding
     linkText: Binding names
   - title: Fast and small
-    details: Faster than sucrase at stripping, a twentieth of the compiler's time at binding, 35 KB gzipped, and no outside code.
+    details: 35 KB gzipped and no outside code, in plain ES2022 modules that load in a page without a bundler. Every change is benchmarked.
     link: /BENCHMARKS
     linkText: Benchmarks
 ---

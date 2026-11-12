@@ -2,7 +2,7 @@
   "name": "smaltty",
   "version": "0.9.0",
   "private": true,
-  "description": "A TypeScript kit with no dependencies: parser, type stripper, scope analysis and (later) type checking for code written against smaltdf",
+  "description": "smalt's own implementation of TypeScript, with no dependencies: parser, type stripper, scope analysis and type checking for code written against smaltdf and smaltts",
   "license": "MIT",
   "type": "module",
   "repository": {

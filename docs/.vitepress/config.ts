@@ -9,16 +9,17 @@ const base = process.env.DOCS_BASE ?? '/smaltty/'
 
 export default defineConfig({
   title: 'smaltty',
-  description: 'The TypeScript kit for the smalt apps: parse, strip and bind TypeScript in the browser, with no dependencies.',
+  description: "TypeScript for the smalt apps: smalt's own implementation of TypeScript, in the browser, with no dependencies.",
   base,
   cleanUrls: true,
   lastUpdated: false,
   head: [
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: `${base}favicon-32.svg` }],
     ['link', { rel: 'preconnect', href: 'https://fonts.googleapis.com' }],
     ['link', { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' }],
     ['link', { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&family=Geist+Mono:wght@400;500&family=Martian+Mono:wght@400;600&display=swap' }],
     ['meta', { property: 'og:title', content: 'smaltty' }],
-    ['meta', { property: 'og:description', content: 'The TypeScript kit for the smalt apps: parse, strip and bind TypeScript in the browser, with no dependencies.' }],
+    ['meta', { property: 'og:description', content: "TypeScript for the smalt apps: smalt's own implementation of TypeScript, in the browser, with no dependencies." }],
   ],
   markdown: {
     theme: { light: smaltLight, dark: smaltDark },
@@ -40,7 +41,8 @@ export default defineConfig({
     },
   },
   themeConfig: {
-    siteTitle: 'smaltty',
+    logo: { light: '/lockup.svg', dark: '/lockup-on-dark.svg', alt: 'smaltty' },
+    siteTitle: false,
     nav: [
       { text: 'Guide', link: '/guide/getting-started' },
       { text: 'Benchmarks', link: '/BENCHMARKS' },

@@ -1,5 +1,5 @@
 /**
- * smaltty: a TypeScript kit with no dependencies. So far: the parser (its tree follows TypeScript's own, stored flat)
+ * smaltty: smalt's own implementation of TypeScript, with no dependencies. So far: the parser (its tree follows TypeScript's own, stored flat)
  * and the stripper (types replaced by spaces, so lines and columns stay put). See docs/MILESTONES.md.
  */
 import { transpile, type Transpiler } from './strip.js';

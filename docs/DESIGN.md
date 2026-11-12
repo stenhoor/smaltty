@@ -18,6 +18,11 @@ that is not TypeScript.) So types are checked while smaltdf is built, and droppe
 
 ## What smaltty is, and isn't
 
+**Since 2026-11-12, a top-level product.** smaltty grew into a significant part of a TypeScript compiler, and the owner
+made it a top-level smalt product: smalt's own implementation of TypeScript, no longer a kit (smalt-brand's
+[DECISIONS.md](https://github.com/stenhoor/smalt-brand/blob/main/DECISIONS.md), "smaltty: a product"). The test below
+still decides what work comes next. As written on 2026-11-08:
+
 smaltty is a kit, one of smaltworks' kits as the community sees them, in its own repository. smaltworks isn't in the
 business of writing TypeScript compilers. smaltty exists because it removes dependencies from the apps and may make them
 faster. It becomes a product in its own right, with its own brand, only if it grows into our own TypeScript compiler or a
