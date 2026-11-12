@@ -1,7 +1,8 @@
 # CLAUDE.md
 
-smaltty is a TypeScript kit with no outside code: a parser, a type stripper, scope analysis and, later, a type checker
-for TypeScript written against smaltdf and smaltts (smaltts's TypeScript tooling is smaltty: owner's decision,
+smaltty is smalt's own implementation of TypeScript, a top-level smalt product (the owner's decision, 2026-11-12), with
+no outside code: a parser, a type stripper, scope analysis and a type checker for TypeScript written against smaltdf
+and smaltts (smaltts's TypeScript tooling is smaltty: owner's decision,
 2026-11-10). It replaces sucrase in smaltui and the TypeScript compiler in smaltnb. smaltkit
 wraps it for the apps. Read [docs/DESIGN.md](docs/DESIGN.md) first: it holds the owner's decisions and their order.
 Milestones 1–8 are done (through the checker and checking in the apps); milestones 9–15 were decided at gate D
@@ -73,12 +74,19 @@ npm run docs:dev       # the docs site (docs/, VitePress); docs:build fails on d
 
 ## Brand
 
-smaltty is one of the kits, not a top-level product: it has no brand entry or mark of its own. Don't propose one. It
-becomes a top-level product only if it grows into our own TypeScript compiler or a significant part of one, and that
-is the owner's call. Its docs site and README follow smalt-brand's
-[BRAND.md](https://github.com/stenhoor/smalt-brand/blob/main/BRAND.md) "Sites and READMEs", like the other docs sites
-(the owner's choice, 2026-11-08), with two differences while it has no brand entry: the name is text where they show a
-lockup, and the hero has a plain description instead of a family tagline.
+smaltty is a top-level smalt product, not a kit: smalt's own implementation of TypeScript. The owner made it one on
+2026-11-12, once it had grown into a significant part of a TypeScript compiler (smalt-brand's
+[DECISIONS.md](https://github.com/stenhoor/smalt-brand/blob/main/DECISIONS.md), "smaltty: a product"):
+
+- **Words:** the tagline "Small. Alternative. Code.", the line "TypeScript for the smalt apps.", and the role "smalt's
+  TypeScript implementation" ("smaltty · TypeScript implementation" in menus).
+- **Mark and colour:** the Grain, turned (smaltdb's Grain rotated half a turn, the chip at the bottom left), in kiln,
+  the family's colour: TypeScript is the language of everything smalt. The hero suffix is `suffix family`.
+- **Place:** at the base of the family, under smaltdb's plugins.
+
+The logo files in `docs/public/` come from smalt-brand's `logos/smaltty/`, unchanged. The docs site and README follow
+smalt-brand's [BRAND.md](https://github.com/stenhoor/smalt-brand/blob/main/BRAND.md) "Sites and READMEs", like every
+product's.
 
 ## Cross-repo impact
 

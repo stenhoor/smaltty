@@ -3,8 +3,12 @@ layout: home
 
 hero:
   name: 'sm<span class="alt">alt</span><span class="suffix family">ty</span>'
-  text: The TypeScript kit
-  tagline: TypeScript for the smalt apps, in our own code. It parses, strips and binds TypeScript in the browser, with no dependencies.
+  text: 'Small. Alternative.<br>Code.'
+  tagline: TypeScript for the smalt apps. smaltty is smalt's own implementation of TypeScript, a top-level smalt product. It parses, strips, binds and type-checks TypeScript in the browser, with no dependencies.
+  image:
+    light: /grain-mark.svg
+    dark: /grain-mark-on-dark.svg
+    alt: smaltty
   actions:
     - theme: brand
       text: Getting started

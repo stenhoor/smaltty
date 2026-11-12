@@ -56,7 +56,7 @@ import smaltty from 'smaltty';
 smaltty.transpile(code, { filename: 'tab.ts' });
 ```
 
-## The rest of the kit
+## The rest of smaltty
 
 - [`parse`](./parsing) gives TypeScript's syntax tree, stored flat.
 - [`bind`](./binding) says which declaration each name means.
