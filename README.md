@@ -7,8 +7,8 @@ top-level smalt product: it parses, strips, binds and type-checks TypeScript in 
 
 [Documentation](https://stenhoor.github.io/smaltty/) · [smaltworks.dev](https://smaltworks.dev/products/smaltty)
 
-- **Stripping:** types become spaces, so every line and column of the JavaScript is the one written. Faster than
-  sucrase, and TypeScript's rules where the two differ.
+- **Stripping:** types become spaces, so every line and column of the JavaScript is the one written, by TypeScript's
+  own rules.
 - **Parsing:** TypeScript's own syntax tree, node for node, stored flat.
 - **Binding:** which declaration each name means, the way TypeScript's checker says.
 
