@@ -168,11 +168,15 @@ The plan, as it was:
 - **Done when:** both apps show smaltdf type errors for the corpus's broken cases, and running code is no slower.
 
 **Gate D (owner):** the decisions in [ADR 0029](adr/0029-after-the-checker-trial.md): TypeScript 7 as the reference
-(a dev dependency change), the tolerant parse for checking, and the order below. Nothing in milestones 9–15 starts
-until the owner answers.
+(a dev dependency change), the tolerant parse for checking, and the order below; and in
+[ADR 0030](adr/0030-changing-smaltty-without-breaking-its-consumers.md): releases and tags, the downstream check,
+TypeScript 7 for checking in every smalt repository, and the TypeScript and browser rules. Nothing in milestones 9–15
+starts until the owner answers.
 
 Proposed in ADR 0029, 2026-11-11: speed in the page first (milestones 10–12), then checking through syntax errors and
-coverage (13–14), then messages (15). Each milestone is measured on the tables in [BENCHMARKS.md](BENCHMARKS.md),
+coverage (13–14), then messages (15). ADR 0030 groups them in three waves by what users notice: tooling (9), speed (10–12), visible
+(13–15). Each milestone ends in a tagged release with its changelog, and a release is tagged only with the downstream
+check green. Each milestone is measured on the tables in [BENCHMARKS.md](BENCHMARKS.md),
 smaltty against tsc and tsrs, in Node and in Chromium; a slowdown is a regression.
 
 ## 9. TypeScript 7 as the reference
@@ -183,9 +187,13 @@ smaltty against tsc and tsrs, in Node and in Chromium; a slowdown is a regressio
   and their messages.
 - `test/checking.ts` and `test/tsrs.ts` compare with TypeScript 7; `test/tsrs.ts` also counts the errors smaltty
   misses, by code, for milestone 14. The coverage floors in `test/checker.test.ts` are re-taken on 7's errors.
-- smaltty's own `typecheck` runs on TypeScript 7. Milestone 6's status is confirmed, and the status page and DESIGN.md
-  are brought up to date.
-- **Done when:** CI passes with TypeScript 7 as the checker's reference, BENCHMARKS.md has TypeScript 7's columns, and
+- smaltty's own `typecheck` runs on TypeScript 7. `tsc` (which builds `dist/`, also when a consumer installs smaltty
+  from GitHub) stays 6.0.3's for this release; TypeScript 7 is run by its own name (ADR 0030, decision 5).
+- The downstream check (ADR 0030, decision 2): a workflow runs smaltkit's, smaltts's, smaltui's and smaltnb's tests
+  (the apps' e2e in Chromium) against smaltty's `main`, on a schedule and before each release.
+- Releases: `CHANGELOG.md`, and smaltty 0.1.0 tagged; smaltkit and smaltts move their pins from commits to the tag.
+- Milestone 6's status is confirmed.
+- **Done when:** the downstream check is green on `main`, CI passes with TypeScript 7 as the checker's reference, BENCHMARKS.md has TypeScript 7's columns, and
   the messages that differ are counted against 7 (the count milestone 15 brings down).
 
 ## 10. Entry points and size
@@ -204,6 +212,10 @@ smaltty against tsc and tsrs, in Node and in Chromium; a slowdown is a regressio
 - The built-in types prepared when smaltty is built. smaltui's and smaltnb's build steps that write `types.json` write
   prepared declarations instead (PRs in smaltkit, smaltui and smaltnb, linked with `Depends on:`).
 - smaltkit's worker starts while the page is idle and warms with a check of nothing.
+- Added, not changed (ADR 0030, decision 3): `check()` and smaltkit's `TypeCheckSetup` take prepared declarations
+  beside `.d.ts` text, and the apps move to them one at a time. A prepared buffer carries its format version; one
+  smaltty doesn't know is ignored and the text read instead, including a buffer kept in the browser from an earlier
+  deploy. Text is still accepted for one minor release after the apps have moved.
 - **Done when:** a page's first check, from the worker's start, is under 20 ms in Chromium for smaltui's tabs and
   smaltnb's notebooks (91 ms now for smaltts's examples; measured for each), cold checks stay under 10 ms, and the
   errors found are the same as from `.d.ts` text.
@@ -225,6 +237,9 @@ Only with the owner's yes at gate D: it is an exception to the node-for-node rul
   node for node, stays for stripping.
 - smaltui's tabs and smaltnb's notebooks show the other lines' warnings while one line is half typed; smaltnb's own
   `parseTolerant` goes from its checking path.
+- An option, off by default (ADR 0030, decision 3): with it off, `check()` reports what it does now, and the strict
+  parse still throws `ParseError`, which smaltkit catches. Each app turns it on when it stops reporting syntax errors
+  its own way, so none is shown twice.
 - **Done when:** on the mutants with a syntax error added to one statement, the other statements' errors are TypeScript
   7's on the same file without it, with no false errors; and the strict parse is no slower.
 
@@ -241,6 +256,8 @@ In the order of milestone 9's count of what is missed most, each part measured o
 - A missing `await`.
 - The built-in types modern browsers ship: `Date`, `RegExp`, `Object`, `Error`, iterator helpers, `Array.fromAsync`,
   ES2025's `Set` methods, `structuredClone` and `console`, each held to TypeScript's lib by `test/builtins.test.ts`.
+- Rolled out as ADR 0030's wave 3: the errors each new group finds in smaltts's tests and examples and in the apps'
+  demos are fixed in those repositories before the release that reports them; then smaltui's tabs, then smaltnb.
 - **Done when:** smaltts's mutants above 90% caught, smaltdf's above 95%, the floors in `test/checker.test.ts` raised
   to match, still no false errors on any corpus, and cold checks and re-checks no slower than after milestone 12.
 

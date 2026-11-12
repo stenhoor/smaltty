@@ -5,8 +5,9 @@ for TypeScript written against smaltdf and smaltts (smaltts's TypeScript tooling
 2026-11-10). It replaces sucrase in smaltui and the TypeScript compiler in smaltnb. smaltkit
 wraps it for the apps. Read [docs/DESIGN.md](docs/DESIGN.md) first: it holds the owner's decisions and their order.
 Milestones 1–8 are done (through the checker and checking in the apps); milestones 9–15 are proposed in
-docs/adr/0029-after-the-checker-trial.md and wait on the owner's gate D; see docs/MILESTONES.md. Several Claude Code
-sessions work on the smalt repos in parallel and cannot see each other: this file is the shared starting point, and its working rules match smaltdb's `CLAUDE.md`.
+docs/adr/0029-after-the-checker-trial.md, with how they reach consumers in
+docs/adr/0030-changing-smaltty-without-breaking-its-consumers.md, and wait on the owner's gate D; see
+docs/MILESTONES.md. Several Claude Code sessions work on the smalt repos in parallel and cannot see each other: this file is the shared starting point, and its working rules match smaltdb's `CLAUDE.md`.
 
 ## Commands
 
