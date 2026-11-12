@@ -12,6 +12,6 @@
 | 6. smaltnb moves over | Done in smaltnb's code; to be confirmed |
 | 7. Checker trial | Done |
 | 8. Checking in the apps | Done: smaltui and smaltnb mark type errors as warnings |
-| 9–15. Speed in the page, TypeScript 7, coverage | Proposed in [ADR 0029](../adr/0029-after-the-checker-trial), waiting on the owner's gate D |
+| 9–15. Speed in the page, TypeScript 7, coverage | Proposed in [ADR 0029](../adr/0029-after-the-checker-trial), waiting on the owner's gate D, with [ADR 0030](../adr/0030-changing-smaltty-without-breaking-its-consumers) (how they reach the apps) |
 
 Everything before 1.0 can change: [work in progress, come build with us](https://smaltworks.dev/stability).
