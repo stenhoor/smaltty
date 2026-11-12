@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: 'sm<span class="alt">alt</span><span class="suffix kit">ty</span>'
+  name: 'sm<span class="alt">alt</span><span class="suffix family">ty</span>'
   text: The TypeScript kit
   tagline: TypeScript for the smalt apps, in our own code. It parses, strips and binds TypeScript in the browser, with no dependencies.
   actions:
