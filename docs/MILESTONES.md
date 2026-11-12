@@ -170,12 +170,17 @@ The plan, as it was:
 **Gate D (owner):** the decisions in [ADR 0029](adr/0029-after-the-checker-trial.md): TypeScript 7 as the reference
 (a dev dependency change), the tolerant parse for checking, and the order below; and in
 [ADR 0030](adr/0030-changing-smaltty-without-breaking-its-consumers.md): releases and tags, the downstream check,
-TypeScript 7 for checking in every smalt repository, and the TypeScript and browser rules. Nothing in milestones 9–15
-starts until the owner answers.
+TypeScript 7 for checking in every smalt repository, and the TypeScript and browser rules.
 
-Proposed in ADR 0029, 2026-11-11: speed in the page first (milestones 10–12), then checking through syntax errors and
-coverage (13–14), then messages (15). ADR 0030 groups them in three waves by what users notice: tooling (9), speed (10–12), visible
-(13–15). Each milestone ends in a tagged release with its changelog, and a release is tagged only with the downstream
+Decided on 2026-11-12: **yes to all of them** (both ADRs accepted; their "The owner's decisions" sections hold the
+answers). TypeScript 7 is the reference, with tsrs and 7's own `tsc`, and `typescript` 6.0.3 kept for its API; the
+tolerant parse is allowed for checking only; releases are tagged per milestone; the downstream check runs on a
+schedule and before each release; every smalt repository checks with TypeScript 7 now; and the TypeScript and browser
+rules are the whole family's. Milestone 9 is next.
+
+The order (ADR 0029, as proposed): speed in the page first (milestones 10–12), then checking through syntax errors and
+coverage (13–14), then messages (15). ADR 0030 groups them in three waves by what users notice: tooling (9), speed
+(10–12), visible (13–15). Each milestone ends in a tagged release with its changelog, and a release is tagged only with the downstream
 check green. Each milestone is measured on the tables in [BENCHMARKS.md](BENCHMARKS.md),
 smaltty against tsc and tsrs, in Node and in Chromium; a slowdown is a regression.
 
@@ -230,7 +235,7 @@ smaltty against tsc and tsrs, in Node and in Chromium; a slowdown is a regressio
 
 ## 13. Checking through syntax errors
 
-Only with the owner's yes at gate D: it is an exception to the node-for-node rule.
+The owner's yes at gate D (2026-11-12): an exception to the node-for-node rule, for checking only.
 
 - A tolerant parse for checking: a syntax error is kept to its top-level statement (or cell), which is reported with
   its line and column, and the rest of the file is parsed and checked. The strict parser, compared with TypeScript

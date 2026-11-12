@@ -9,5 +9,5 @@ number after the highest in any repository, open PRs included.
 
 | Record | Status |
 | --- | --- |
-| [ADR 0029: after the checker trial: speed in the page, TypeScript 7 as the reference](0029-after-the-checker-trial.md) | Proposed |
-| [ADR 0030: changing smaltty without breaking its consumers](0030-changing-smaltty-without-breaking-its-consumers.md) | Proposed |
+| [ADR 0029: after the checker trial: speed in the page, TypeScript 7 as the reference](0029-after-the-checker-trial.md) | Accepted |
+| [ADR 0030: changing smaltty without breaking its consumers](0030-changing-smaltty-without-breaking-its-consumers.md) | Accepted |

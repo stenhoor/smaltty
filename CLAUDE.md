@@ -4,11 +4,11 @@ smaltty is a TypeScript kit with no outside code: a parser, a type stripper, sco
 for TypeScript written against smaltdf and smaltts (smaltts's TypeScript tooling is smaltty: owner's decision,
 2026-11-10). It replaces sucrase in smaltui and the TypeScript compiler in smaltnb. smaltkit
 wraps it for the apps. Read [docs/DESIGN.md](docs/DESIGN.md) first: it holds the owner's decisions and their order.
-Milestones 1–8 are done (through the checker and checking in the apps); milestones 9–15 are proposed in
-docs/adr/0029-after-the-checker-trial.md, with how they reach consumers in
-docs/adr/0030-changing-smaltty-without-breaking-its-consumers.md, and wait on the owner's gate D; see
-docs/MILESTONES.md. Several Claude Code sessions work on the smalt repos in parallel and cannot see each other: this
-file is the shared starting point, and its working rules match smaltdb's `CLAUDE.md`.
+Milestones 1–8 are done (through the checker and checking in the apps); milestones 9–15 were decided at gate D
+(2026-11-12) in docs/adr/0029-after-the-checker-trial.md, with how they reach consumers in
+docs/adr/0030-changing-smaltty-without-breaking-its-consumers.md; milestone 9 is next. See docs/MILESTONES.md.
+Several Claude Code sessions work on the smalt repos in parallel and cannot see each other: this file is the shared
+starting point, and its working rules match smaltdb's `CLAUDE.md`.
 
 ## Commands
 
@@ -45,12 +45,16 @@ npm run docs:dev       # the docs site (docs/, VitePress); docs:build fails on d
 
 - TypeScript only: no Rust, no WASM. Output is plain ES2022 modules that load in a page without a bundler.
 - No run-time dependencies. sucrase, typescript, tsrs and @tsrs/wasm (the owner's yes, 2026-11-11) may be dev dependencies for
-  differential tests and benchmarks only.
+  differential tests and benchmarks only; from milestone 9, `typescript` 6.0.3 for its API and TypeScript 7 under an
+  npm alias, run by its own name, while `tsc` stays 6.0.3's (the owner's yes, 2026-11-12, ADR 0029).
+- Releases: a tag per milestone with `CHANGELOG.md`, and only with the downstream check green (ADR 0030). New
+  behaviour comes as an option, off by default; a default changes only in a release that says so.
 - Speed comes first. Every change to the scanner, parser, stripper or binder is benchmarked against the tool it
   replaces, on the same work, and a slowdown is a regression.
 - Follow TypeScript, not sucrase: where they differ, TypeScript's behaviour is right (the owner's rule).
 - The parser's tree must match TypeScript's node for node. A difference the tests or a sweep find is a bug in smaltty,
-  unless TypeScript reports a syntax error there too.
+  unless TypeScript reports a syntax error there too. The one exception is the checker's tolerant parse (milestone
+  13, the owner's yes, 2026-11-12), off by default and never used for stripping.
 - The binder must name the declaration TypeScript's checker names, for every name it binds.
 - Erasable syntax only: `enum`, `namespace` with values and constructor parameter properties are reported, not
   transformed.

@@ -1,6 +1,6 @@
 # ADR 0029: after the checker trial: speed in the page, TypeScript 7 as the reference
 
-- **Status:** proposed (2026-11-11; the owner's decisions are open, below)
+- **Status:** accepted (2026-11-12; the owner's decisions below)
 - **Date:** 2026-11-11
 - **Builds on:** [DESIGN.md](../DESIGN.md) (the test every piece of work passes: does it remove outside code from the
   apps, or make them faster?), [MILESTONES.md](../MILESTONES.md) milestones 1–8 and gate C,
@@ -111,17 +111,18 @@ towards none.
 
 ## The owner's decisions
 
-Open. Nothing in milestones 9–15 starts until these are answered.
+Answered on 2026-11-12, in an interview at gate D.
 
-1. **TypeScript 7 as the reference (decision 1).** It changes dev dependencies: `typescript` 5.9.3 to 6.0.3 for its
-   API, and `typescript` 7 beside it as the `tsc` command (an npm alias such as `typescript7`), or tsrs alone for
-   TypeScript 7's errors. CLAUDE.md asks for the owner's yes on any package change. Both are Apache-2.0; neither
-   reaches `dist/`.
-2. **The tolerant parse (decision 4)** as an exception to "the parser's tree must match TypeScript's node for node",
-   for checking only.
-3. **The order** of milestones 9–15, which puts speed (first check, re-checks, size) before coverage.
-4. **Unchanged, unless the owner says otherwise:** errors stay warnings and code still runs; completions, hover and
-   go-to-definition stay out (they remove no outside code and make nothing faster, so they fail DESIGN.md's test).
+1. **TypeScript 7 is the reference (decision 1): yes, with tsrs and TypeScript 7's own `tsc`, and 6.0.3 kept.** The
+   owner's yes to the dev dependency changes: `typescript` 5.9.3 becomes 6.0.3, kept for its JavaScript API until
+   TypeScript 7 has a stable one, and TypeScript 7 is added under an npm alias, run by its own name (ADR 0030,
+   decision 5: `tsc` stays 6.0.3's while it builds `dist/`). tsrs stays. Both TypeScript packages are Apache-2.0, and
+   neither reaches `dist/`.
+2. **The tolerant parse (decision 4): yes, for checking only.** An exception to "the parser's tree must match
+   TypeScript's node for node" for the checker's tolerant parse, off by default (ADR 0030, decision 3). The strict
+   parse, used for stripping, is still compared with TypeScript node for node.
+3. **The order: speed first, as proposed.** Milestones 9, 10, 11, 12, then 13, 14 and 15.
+4. **Unchanged:** errors stay warnings and code still runs; completions, hover and go-to-definition stay out.
 
 ## Alternatives
 
