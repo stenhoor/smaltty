@@ -130,6 +130,8 @@ interface Map<K, V> {
   get(key: K): V | undefined;
   has(key: K): boolean;
   set(key: K, value: V): Map<K, V>;
+  getOrInsert(key: K, defaultValue: V): V;
+  getOrInsertComputed(key: K, callback: (key: K) => V): V;
   size: number;
   entries(): any;
   keys(): any;

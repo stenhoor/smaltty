@@ -60,8 +60,12 @@ Status: done, 2026-11-08 ([BENCHMARKS.md](BENCHMARKS.md), "What milestone 5 says
 
 ## 6. smaltnb moves over
 
-Status: done in smaltnb's code, to be confirmed against the done-when below (ADR 0029): smaltnb's `format.ts` walks
-smaltty's tree, and nothing in smaltnb imports `typescript`.
+Status: done; confirmed on 2026-11-12 (milestone 9) against smaltnb's `main` (a536302). smaltnb's `format.ts` walks
+smaltty's tree; nothing in its source, app or examples imports `typescript`, which is a dev dependency only (it builds
+`dist/`), so no TypeScript compiler is loaded at run time; `loadTypeScript` and `TYPESCRIPT_URL` are gone. The `ts`
+option stayed, as the kit passed in (`smaltty` from `smaltkit/typescript`, so `format.ts` loads without a bundler)
+rather than the compiler. smaltnb's tests and e2e pass on its `main` (its CI) and against this smaltty (the downstream
+check), and smaltdb-sucrase is retired (stenhoor/smaltdb-sucrase#2, milestone 4).
 
 - `parseNotebook`, `compileCell`, `compileSetup` and `compileGuard` use smaltty. The `ts` option, `loadTypeScript` and
   `TYPESCRIPT_URL` go: a breaking change to smaltnb's API. Notebooks with `enum` or `namespace` now get an error.
@@ -186,6 +190,29 @@ smaltty against tsc and tsrs, in Node and in Chromium; a slowdown is a regressio
 
 ## 9. TypeScript 7 as the reference
 
+Status: done, 2026-11-12, but for its release. **Unfinished:** smaltty 0.10.0 is not tagged yet: it is tagged once this
+is on `main` and the downstream workflow has run green there; then smaltkit and smaltts move their pins to the tag
+(their own sessions' work).
+
+- `typescript` is 6.0.3, for its API and for `tsc`, which builds `dist/`; TypeScript 7.0.2 is `typescript7` (an npm
+  alias), and `npm run typecheck` runs on it.
+- `test/checking.ts` compares the checker with TypeScript 7's `tsc` (its command line, `--pretty false`, message
+  chains included), and `test/tsrs.ts` with TypeScript 7, tsrs and TypeScript 6.0; `--misses` counts the errors
+  smaltty misses by code: 306 that the mutations bring, 168 of them of the codes smaltty checks
+  ([BENCHMARKS.md](BENCHMARKS.md), "Checking: which errors each reports"). TypeScript 7's errors are 5.9's at the
+  same places, so the counts are too: smaltts's mutants 662 of 847 (78%), smaltdf's 325 of 370 (88%), the tabs' 37
+  of 38 (97%), no false errors. The floors are re-taken on them (0.78, 0.87, 0.97), and the 250 messages that differ
+  from TypeScript 7's are held to that count in the tests (170, 60 and 0 in the mutant tests): milestone 15's
+  starting point.
+- The downstream check: `scripts/downstream.mjs`, run daily and by hand by `.github/workflows/downstream.yml`. Locally
+  on 2026-11-12, all four pass against this smaltty: smaltkit (install, typecheck, tests), smaltts (its tests, the
+  checker's and stripper's among them), smaltui (typecheck, e2e in Chromium) and smaltnb (typecheck, tests, e2e in
+  Chromium), the apps through a smaltkit built against it.
+- `CHANGELOG.md`; the version follows the family's: 0.9.0 now (shipped in smaltworks 0.9.0), milestone 9 as 0.10.0.
+- BENCHMARKS.md has TypeScript 7's columns; milestone 6 is confirmed (above).
+
+The plan, as it was:
+
 - `typescript` 5.9.3 becomes 6.0.3, kept for its JavaScript API only (`createSourceFile`, `createProgram`,
   `transpileModule`: the parser's, stripper's and binder's comparisons). TypeScript 7's errors come from its `tsc`
   command (an npm alias beside 6.0.3) or from tsrs, and are the reference for the checker's tests: which errors, where,
@@ -196,7 +223,9 @@ smaltty against tsc and tsrs, in Node and in Chromium; a slowdown is a regressio
   from GitHub) stays 6.0.3's for this release; TypeScript 7 is run by its own name (ADR 0030, decision 5).
 - The downstream check (ADR 0030, decision 2): a workflow runs smaltkit's, smaltts's, smaltui's and smaltnb's tests
   (the apps' e2e in Chromium) against smaltty's `main`, on a schedule and before each release.
-- Releases: `CHANGELOG.md`, and smaltty 0.1.0 tagged; smaltkit and smaltts move their pins from commits to the tag.
+- Releases: `CHANGELOG.md`, and smaltty 0.10.0 tagged; smaltkit and smaltts move their pins from commits to the tag.
+  (The versions follow the smalt family's: smaltty shipped as 0.9.0 in smaltworks 0.9.0, the owner's decision of
+  2026-11-12, in place of the 0.1.0 first written here and in ADR 0030.)
 - Milestone 6's status is confirmed.
 - **Done when:** the downstream check is green on `main`, CI passes with TypeScript 7 as the checker's reference, BENCHMARKS.md has TypeScript 7's columns, and
   the messages that differ are counted against 7 (the count milestone 15 brings down).

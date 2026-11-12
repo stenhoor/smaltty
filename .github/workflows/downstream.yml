@@ -1,0 +1,41 @@
+name: Downstream
+
+# The downstream check (ADR 0030, decision 2): smaltkit's, smaltts's, smaltui's and smaltnb's own tests, the apps'
+# end-to-end tests in Chromium included, against this smaltty. It runs on a schedule against main, and by hand before
+# a release is tagged: a release is tagged only with it green. The work is in scripts/downstream.mjs, which also runs
+# locally.
+
+on:
+  schedule:
+    - cron: '17 4 * * *'   # daily
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Consumers to check, comma-separated (default: smaltkit,smaltts,smaltui,smaltnb)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: downstream-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  downstream:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci          # also builds dist/ (prepare)
+      # Playwright in its own folder, as smaltnb's CI has it: it isn't a dependency of any of the consumers, and an npm
+      # install in a checkout would remove a copy installed there. The apps' e2e tests find it through NODE_PATH.
+      - run: npm install --prefix "$RUNNER_TEMP/pw" playwright && "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium
+      - run: node scripts/downstream.mjs --work "$RUNNER_TEMP/downstream" ${ONLY:+--only "$ONLY"}
+        env:
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules
+          ONLY: ${{ inputs.only }}

@@ -34,8 +34,17 @@ export function programLines(js: string): string[] {
   return out;
 }
 
-/** TypeScript's own type removal: transpileModule with verbatimModuleSyntax, keeping modern syntax. */
+/**
+ * TypeScript's own type removal: transpileModule with verbatimModuleSyntax, keeping modern syntax. TypeScript 6.0
+ * makes `alwaysStrict` the default and adds `"use strict"` to a script; that line, which the code didn't have, is
+ * taken off again (a stripper removes types and adds nothing).
+ */
 export function typescriptStrip(code: string): string {
+  const js = transpile(code);
+  return js.startsWith('"use strict";\n') && !/^\s*["']use strict["']/.test(code) ? js.slice('"use strict";\n'.length) : js;
+}
+
+function transpile(code: string): string {
   return ts.transpileModule(code, {
     compilerOptions: {
       target: ts.ScriptTarget.ESNext,
