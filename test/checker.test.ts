@@ -1,6 +1,8 @@
-// The checker (milestone 7): every error it reports, tsc reports too (same file, start and code), on hand-written cases
-// and on smaltts's reference examples, as written and mutated (a property misspelt, an argument added or taken away).
-// tsc's errors it misses are counted, not failed: the count is how far checking has come.
+// The checker (milestone 7): every error it reports, TypeScript reports too (same file, start and code), on hand-written
+// cases and on smaltts's reference examples, as written and mutated (a property misspelt, an argument added or taken
+// away). The reference is TypeScript 7's `tsc` (milestone 9; test/checking.ts). Its errors smaltty misses are counted,
+// not failed: the count is how far checking has come. So are the messages that differ from TypeScript 7's
+// (`messageDiffs`), held to a ceiling that milestone 15 brings down.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -215,14 +217,17 @@ test("smaltts's examples mutated: every smaltty error is tsc's; how many of tsc'
   }
   const r = compareChecks(files, { roots });
   assert.deepEqual(r.falseErrors.map((d) => `${d.file}:${d.start} ${d.code} ${d.message}`).slice(0, 10), []);
+  assert.deepEqual(r.skipped, []);
   // 2322 is counted apart: most of tsc's are knock-on errors outside a call's arguments, which aren't in scope.
   const of = (code: (c: number) => boolean) => ({ tsc: r.tsc.filter((d) => code(d.code)).length, caught: r.smaltty.filter((d) => code(d.code)).length });
   const main = of((c) => c !== 2322);
   const props = of((c) => c === 2322);
-  console.log(`# ${roots.length} mutants: tsc ${main.tsc} errors of the checked codes, smaltty caught ${main.caught} (${((100 * main.caught) / main.tsc).toFixed(0)}%); 2322: ${props.caught} of ${props.tsc}`);
-  // A floor, raised as checking grows: caught share must not fall. (72% since tsc's 2345 errors are counted: most
-  // of those it misses are knock-on errors of the mutation elsewhere in the file.)
-  assert.ok(main.caught / main.tsc >= 0.76, `caught ${main.caught} of ${main.tsc}`);
+  console.log(`# ${roots.length} mutants: TypeScript 7 ${main.tsc} errors of the checked codes, smaltty caught ${main.caught} (${((100 * main.caught) / main.tsc).toFixed(0)}%); 2322: ${props.caught} of ${props.tsc}; messages differ: ${r.messageDiffs.length}`);
+  // A floor, raised as checking grows: caught share must not fall. (Most of those it misses are knock-on errors of the
+  // mutation elsewhere in the file.) Taken on TypeScript 7's errors at milestone 9: 662 of 847, as on 5.9's.
+  assert.ok(main.caught / main.tsc >= 0.78, `caught ${main.caught} of ${main.tsc}`);
+  // A ceiling, brought down by milestone 15: 170 at milestone 9, as against 5.9.
+  assert.ok(r.messageDiffs.length <= 170, `${r.messageDiffs.length} messages differ`);
 });
 
 test('this, private names, parameter properties and module augmentations', () => {
@@ -261,6 +266,10 @@ new Box(1).sizes;
 // smaltdf: its source in corpus/libs, under the paths its imports name, read by the apps and generated scripts.
 const { smaltdf, others } = libsCorpus();
 const dfPackages = DF_PACKAGES;
+// Ceilings on the messages that differ from TypeScript 7's, brought down by milestone 15 (milestone 9's counts, the
+// same as against 5.9's).
+const MSG_DF = 60;
+const MSG_TABS = 0;
 
 test('the corpus libraries (smaltdf, smaltnb, smaltkit, smaltui) as written: no false errors', () => {
   const r = compareChecks(new Map([...smaltdf, ...others]), { packages: dfPackages });
@@ -285,8 +294,10 @@ test("smaltdf's API in the apps and generated scripts, mutated: every smaltty er
   assert.deepEqual(r.falseErrors.map((d) => `${d.file}:${d.start} ${d.code} ${d.message}`).slice(0, 10), []);
   const main = r.tsc.filter((d) => d.code !== 2322).length;
   const caught = r.smaltty.filter((d) => d.code !== 2322).length;
-  console.log(`# smaltdf: ${roots.length} mutants: tsc ${main} errors, smaltty caught ${caught} (${((100 * caught) / main).toFixed(0)}%)`);
-  assert.ok(caught / main >= 0.85, `caught ${caught} of ${main}`);
+  console.log(`# smaltdf: ${roots.length - r.skipped.length} mutants (${r.skipped.length} with syntax errors left out): TypeScript 7 ${main} errors, smaltty caught ${caught} (${((100 * caught) / main).toFixed(0)}%); messages differ: ${r.messageDiffs.length}`);
+  // Taken on TypeScript 7's errors at milestone 9: 325 of 370, as on 5.9's.
+  assert.ok(caught / main >= 0.87, `caught ${caught} of ${main}`);
+  assert.ok(r.messageDiffs.length <= MSG_DF, `${r.messageDiffs.length} messages differ`);
 });
 
 test('the built-in types: arrays, strings, numbers, maps, sets, promises, Math and JSON', () => {
@@ -371,8 +382,10 @@ test("globals: smaltui's tabs, smaltdf's exports in scope, as written and mutate
   assert.deepEqual(r.tsc.filter((d) => d.file === '/tabs/smaltui-demo-frames.ts' || d.file === '/tabs/smaltui-starter.ts'), []);
   const main = r.tsc.filter((d) => d.code !== 2322).length;
   const caught = r.smaltty.filter((d) => d.code !== 2322).length;
-  console.log(`# tabs: ${roots.length - 2} mutants: tsc ${main} errors, smaltty caught ${caught} (${((100 * caught) / main).toFixed(0)}%)`);
-  assert.ok(caught / main >= 0.9, `caught ${caught} of ${main}`);
+  console.log(`# tabs: ${roots.length - 2 - r.skipped.length} mutants (${r.skipped.length} with syntax errors left out): TypeScript 7 ${main} errors, smaltty caught ${caught} (${((100 * caught) / main).toFixed(0)}%); messages differ: ${r.messageDiffs.length}`);
+  // Taken on TypeScript 7's errors at milestone 9: 37 of 38, as on 5.9's.
+  assert.ok(caught / main >= 0.97, `caught ${caught} of ${main}`);
+  assert.ok(r.messageDiffs.length <= MSG_TABS, `${r.messageDiffs.length} messages differ`);
 
   // The same, with smaltdf read from its declarations (.d.ts), as a page has it: every error found from its source,
   // and more where the declarations spell out a type the source leaves to inference.
