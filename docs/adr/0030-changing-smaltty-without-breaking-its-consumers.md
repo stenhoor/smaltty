@@ -42,8 +42,10 @@ with users and the other repositories changing only by a step they choose.
 
 ### 1. Releases, not commits
 
-- smaltty is versioned and tagged (0.1.0, 0.2.0, …) when a milestone is done, with a changelog (`CHANGELOG.md`) that
-  marks each change of behaviour a consumer can see: an API, a default, a new error code, a message.
+- smaltty is versioned and tagged when a milestone is done, with a changelog (`CHANGELOG.md`) that marks each change of
+  behaviour a consumer can see: an API, a default, a new error code, a message. The versions follow the smalt
+  family's, not a numbering of smaltty's own (the owner's decision, 2026-11-12, in place of the 0.1.0, 0.2.0, … first
+  written here): smaltty shipped as 0.9.0 in smaltworks 0.9.0, so milestone 9 is released as 0.10.0.
 - Consumers pin tags. smaltkit is the only way smaltty reaches the apps: smaltui and smaltnb change when smaltkit's pin
   moves, and not otherwise.
 - Before 1.0, a minor version may change behaviour, and the changelog says how; a patch version doesn't.
@@ -106,7 +108,8 @@ Wave 3 ships in this order:
 Answered on 2026-11-12, in an interview at gate D, with ADR 0029's.
 
 1. **Releases and tags (decision 1): yes, a tag per milestone,** with `CHANGELOG.md`. smaltkit and smaltts pin tags
-   instead of commits.
+   instead of commits. Later the same day, the versions: they follow the smalt family's (smaltty 0.9.0 shipped in
+   smaltworks 0.9.0), so the first tag is 0.10.0, not 0.1.0.
 2. **The downstream check (decision 2): yes, on a schedule and before each release,** which it must pass. It reads the
    four consumers (all public) and runs the apps' e2e tests in Chromium.
 3. **TypeScript 7 for `typecheck` in every smalt repository (decision 5): yes, checking on 7 now and emitting on
