@@ -1,6 +1,6 @@
 # ADR 0030: changing smaltty without breaking its consumers
 
-- **Status:** proposed (2026-11-12; the owner's decisions are open, below)
+- **Status:** accepted (2026-11-12; the owner's decisions below)
 - **Date:** 2026-11-12
 - **Builds on:** [ADR 0029](0029-after-the-checker-trial.md) (milestones 9–15: speed in the page, TypeScript 7 as
   the reference), [DESIGN.md](../DESIGN.md) ("Type errors on Run": warn and run), CLAUDE.md ("Cross-repo impact").
@@ -103,15 +103,17 @@ Wave 3 ships in this order:
 
 ## The owner's decisions
 
-Open. They are part of gate D (MILESTONES.md), with ADR 0029's.
+Answered on 2026-11-12, in an interview at gate D, with ADR 0029's.
 
-1. **Releases and tags** (decision 1), and `CHANGELOG.md`.
-2. **The downstream check** (decision 2): it needs read access to the four consumers in CI, and Chromium for the e2e
-   tests (as `bench:page` uses now).
-3. **TypeScript 7 for `typecheck` in every smalt repository** (decision 5). It is a change of dev dependency in each,
-   so each needs the owner's yes under its CLAUDE.md; the work there is each repository's own.
-4. **Sections 5 and 6 as rules for the whole family.** Recorded here for smaltty; whether they are smalt-wide (and
-   recorded with smalt-brand's other cross-family decisions as well) is the owner's call.
+1. **Releases and tags (decision 1): yes, a tag per milestone,** with `CHANGELOG.md`. smaltkit and smaltts pin tags
+   instead of commits.
+2. **The downstream check (decision 2): yes, on a schedule and before each release,** which it must pass. It reads the
+   four consumers (all public) and runs the apps' e2e tests in Chromium.
+3. **TypeScript 7 for `typecheck` in every smalt repository (decision 5): yes, checking on 7 now and emitting on
+   6.0.3 for one more release.** This is the owner's yes to that dev dependency change in each repository; the work in
+   each is that repository's own session's.
+4. **Decisions 5 and 6 are rules for the whole smalt family,** recorded here and, by smalt-brand's own session, with
+   smalt-brand's other cross-family decisions.
 
 ## Alternatives
 
