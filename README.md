@@ -2,10 +2,10 @@
 
 <a href="https://smaltworks.dev/stability"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/stenhoor/smalt-brand/main/badges/work-in-progress-on-dark.svg"><img alt="Work in progress. Come build with us." src="https://raw.githubusercontent.com/stenhoor/smalt-brand/main/badges/work-in-progress.svg" height="56"></picture></a>
 
-**The TypeScript kit.** TypeScript for the smalt apps, in our own code: it parses, strips and binds TypeScript in the
-browser, with no dependencies.
+**Small. Alternative. Code.** TypeScript for the smalt apps. smaltty is smalt's own implementation of TypeScript, a
+top-level smalt product: it parses, strips, binds and type-checks TypeScript in the browser, with no dependencies.
 
-[Documentation](https://stenhoor.github.io/smaltty/) · [smaltworks.dev](https://smaltworks.dev/products/kits)
+[Documentation](https://stenhoor.github.io/smaltty/) · [smaltworks.dev](https://smaltworks.dev/products/smaltty)
 
 - **Stripping:** types become spaces, so every line and column of the JavaScript is the one written. Faster than
   sucrase, and TypeScript's rules where the two differ.
