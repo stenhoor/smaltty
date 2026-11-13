@@ -303,7 +303,7 @@ The plan, as it was:
 
 ## 12. Incremental re-checks
 
-Status: built, 2026-11-13, for smaltty 0.13.0 (not yet released). `checkCache()` keeps each root's results statement by
+Status: built, 2026-11-13, and released as smaltty 0.13.0 (tag `v0.13.0`). `checkCache()` keeps each root's results statement by
 statement (`CheckCache.statements`); an edit re-parses the root and checks only the top-level statements whose text, or
 the declarations they use, changed, and moves the others' errors where text before them moved. A re-check of
 `generated/40k.ts` after a one-line edit takes 2.52 ms (22.02 ms checked whole); app code 0.04–0.19 ms (from 0.14–0.36

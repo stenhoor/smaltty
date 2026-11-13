@@ -7,7 +7,7 @@ smaltworks 0.9.0. Each milestone from 9 on ends in a release, tagged only with t
 behaviour, and says how here; a patch release doesn't. Each entry marks what a consumer can see: an API, a default, an
 error code, a message.
 
-## 0.13.0 (unreleased)
+## 0.13.0 (2026-11-13)
 
 Milestone 12: incremental re-checks ([ADR 0029](docs/adr/0029-after-the-checker-trial.md), decision 2). The errors,
 their order, the defaults and the messages are 0.12.0's: a check with a cache finds exactly what a check without one
