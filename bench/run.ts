@@ -15,7 +15,7 @@ import { bind, check, checkCache, parse, prepare, strip } from 'smaltty';
 import { TSC7_VERSION, typescript7Checks } from '../test/checking.ts';
 import { tsrsChecks } from '../test/tsrs.ts';
 import { distUrl, entryPoints, moduleGraph, sizeOf } from './entries.ts';
-import { checkWorkloads, corpusFiles, editInside, generatedFiles, type CheckWorkload, type CorpusFile, type Group } from './corpus.ts';
+import { breakInside, checkWorkloads, corpusFiles, editInside, generatedFiles, type CheckWorkload, type CorpusFile, type Group } from './corpus.ts';
 
 const quick = process.argv.includes('--quick');
 const require = createRequire(import.meta.url);
@@ -266,6 +266,42 @@ line('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
   for (const r of rows.filter((r) => !r.label.startsWith('smaltts '))) {
     const [first, cold, tscCold, seven, tsrs, smEdit, tscEdit, sevenOwn, tsrsOwn, firstPrepared, smEditWhole] = r.v.map(fmt);
     line(`| ${r.label.replace(/^smaltdf (.*)$/, 'smaltdf: `$1`')} | ${first} | **${firstPrepared}** | **${cold}** | ${tscCold} | ${seven} (${sevenOwn}) | ${tsrs} (${tsrsOwn}) | **${smEdit}** | ${smEditWhole} | ${tscEdit} |`);
+  }
+}
+line();
+
+line('### Checking through a syntax error');
+line();
+line("The same workloads, with `check()`'s `syntax: 'tolerant'` (milestone 13), in a warmed-up process. **Clean:** the user file " +
+  'as written, cold. **One syntax error:** a parenthesis left open inside its middle statement, cold: the strict parse ' +
+  'stops, the tolerant parse sets the statement aside and parses the rest again, and the rest is checked. **After an edit ' +
+  'that makes one:** with `checkCache()`, each check a different syntax error in that statement, the other statements\' ' +
+  "results kept. Milliseconds; the smaltts row is the median of its examples, with the slowest in brackets.");
+line();
+line('| Workload | clean | one syntax error | after an edit that makes one |');
+line('| --- | ---: | ---: | ---: |');
+{
+  const rows: { label: string; v: number[] }[] = [];
+  for (const w of checkWorkloads()) {
+    const opts = { roots: [w.root], packages: w.packages, syntax: 'tolerant' as const };
+    const text = w.files.get(w.root)!;
+    const broken = new Map(w.files).set(w.root, breakInside(text, 0));
+    const clean = time(() => check(w.files, opts), 600);
+    const one = time(() => check(broken, opts), 600);
+    const texts = [0, 1, 2].map((k) => breakInside(text, k));
+    let n = 0;
+    const cache = checkCache();
+    const files = new Map(w.files);
+    const edit = time(() => { files.set(w.root, texts[n++ % texts.length]!); check(files, { ...opts, cache }); }, 600);
+    rows.push({ label: w.label, v: [clean, one, edit] });
+  }
+  const smaltts = rows.filter((r) => r.label.startsWith('smaltts '));
+  const mid = (xs: number[]) => [...xs].sort((a, b) => a - b)[xs.length >> 1]!;
+  const cell = (j: number) => `${fmt(mid(smaltts.map((r) => r.v[j]!)))} (${fmt(Math.max(...smaltts.map((r) => r.v[j]!)))})`;
+  line(`| smaltts's reference and guide examples (${smaltts.length}) | ${cell(0)} | **${cell(1)}** | **${cell(2)}** |`);
+  for (const r of rows.filter((r) => !r.label.startsWith('smaltts '))) {
+    const [clean, one, edit] = r.v.map(fmt);
+    line(`| ${r.label.replace(/^smaltdf (.*)$/, 'smaltdf: `$1`')} | ${clean} | **${one}** | **${edit}** |`);
   }
 }
 line();
