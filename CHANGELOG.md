@@ -2,7 +2,8 @@
 
 smaltty's releases follow the smalt family's version (the owner's decision, 2026-11-12): smaltty 0.9.0 shipped in
 smaltworks 0.9.0. Each milestone from 9 on ends in a release, tagged only with the downstream check green
-([ADR 0030](docs/adr/0030-changing-smaltty-without-breaking-its-consumers.md)). Before 1.0 a minor release may change
+([ADR 0030](docs/adr/0030-changing-smaltty-without-breaking-its-consumers.md)), by the Release workflow
+(`.github/workflows/release.yml`) from 0.11.0 on. Before 1.0 a minor release may change
 behaviour, and says how here; a patch release doesn't. Each entry marks what a consumer can see: an API, a default, an
 error code, a message.
 

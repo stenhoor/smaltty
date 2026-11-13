@@ -46,6 +46,10 @@ NODE_PATH=$(npm root -g) node scripts/downstream.mjs   # the downstream check: t
   that comparison, on the checker tests' mutants; `--misses` counts what smaltty misses, by code.
 - `scripts/downstream.mjs` (run daily by `.github/workflows/downstream.yml`): smaltkit's, smaltts's, smaltui's and
   smaltnb's own tests, the apps' e2e in Chromium, against this smaltty. A release is tagged only with it green.
+- `.github/workflows/release.yml` tags a release: run by hand on `main` with the version, after the release commit
+  (version in `package.json`, `VERSION` in `src/entry-strip.ts`, a dated `CHANGELOG.md` heading) is merged. It checks
+  those, runs the tests and the downstream check on that commit, and pushes the annotated tag `v<version>`. Sessions
+  can't push tags themselves (the session's git proxy refuses them); they start this workflow instead.
 - `corpus/` the input for tests and benchmarks ([corpus/README.md](corpus/README.md)). `bench/` the harness.
 - `docs/` is the docs site (VitePress, deployed to stenhoor.github.io/smaltty/ from `main` by `.github/workflows/docs.yml`):
   `guide/`, `adr/` (decision records, numbered with all smalt ADRs), and [DESIGN.md](docs/DESIGN.md),
