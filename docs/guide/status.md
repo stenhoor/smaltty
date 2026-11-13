@@ -13,6 +13,7 @@
 | 7. Checker trial | Done |
 | 8. Checking in the apps | Done: smaltui and smaltnb mark type errors as warnings |
 | 9. TypeScript 7 as the reference | Done, 2026-11-12: the checker is compared with TypeScript 7, and a downstream check runs the consumers' tests ([ADR 0029](../adr/0029-after-the-checker-trial), [ADR 0030](../adr/0030-changing-smaltty-without-breaking-its-consumers)). Released as 0.10.0 |
-| 10–15. Speed in the page, then coverage | Next, in order |
+| 10. Entry points and size | Done in smaltty (unreleased, 0.11.0): `smaltty/strip`, `smaltty/bind` and `smaltty/check`; the stripping path is 24.5 KB gzipped. The apps load the checker only in its worker once they take smaltkit's change |
+| 11–15. Speed in the page, then coverage | Next, in order |
 
 Everything before 1.0 can change: [work in progress, come build with us](https://smaltworks.dev/stability).

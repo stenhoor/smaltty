@@ -231,6 +231,30 @@ The plan, as it was:
 
 ## 10. Entry points and size
 
+Status: done in smaltty, 2026-11-13, not yet released (0.11.0). What was built:
+
+- `smaltty/strip` (the scanner, parser and stripper), `smaltty/check` (the checker, its built-in types, the binder and
+  the parser) and `smaltty/bind` (the binder alone), each loading only its own modules; `smaltty` still exports
+  everything, with the same values (ADR 0030, decision 3). `smaltty/bind` is one more than planned: smaltnb's notebook
+  format binds names outside the checker's worker (in its kernel worker), through smaltkit/typescript's `smaltty`, so
+  the binder had to load without the checker. `test/entries.test.ts` records the modules each entry point loads.
+- `dist/*.js` is built without comments; the `.d.ts` keep theirs, and the source maps point at `src/`. The stripping
+  path is 24.5 KB gzipped (from 31.1 KB after the split alone, 30.7 KB of stripping modules in 0.10.0), with no
+  slowdown in stripping or parsing. Loading is measured per entry point in Node and in Chromium
+  ([BENCHMARKS.md](BENCHMARKS.md), "What milestone 10 says").
+- Not minified: a minifier would take a further 4.5 KB (18%) off the stripping path and about 2 ms off its load in a
+  page, but it is outside code, a dev dependency that needs the owner's yes; the numbers are in BENCHMARKS.md.
+- smaltkit (branch `claude/smaltty-entry-points`): smaltkit/typescript imports `smaltty/strip` and `smaltty/bind`,
+  and the checker (`smaltty/check`) is loaded only by the type checker's worker, through a new `smaltkit/typechecker`;
+  `smaltkit/typecheck`, which a page loads, loads none of smaltty. With it, smaltui's page loads the stripping path
+  and the binder (28.7 KB gzipped) and no checker code, and smaltnb's page bundle has no smaltty at all (its kernel
+  worker the stripping path and the binder, its type checker's worker the checker); before, both pages' threads or
+  the kernel worker loaded all of smaltty. The downstream check passes on it and on the consumers' `main`.
+- **Left:** smaltkit's branch merged and its smaltty pin moved to the v0.11.0 tag once this is released; then smaltui
+  and smaltnb move their smaltkit pins, which is when the apps load the checker only in its worker.
+
+The plan, as it was:
+
 - `smaltty/strip` (scanner, parser, stripper) and `smaltty/check` (binder, checker, built-in types) as entry points
   of their own, `smaltty` still exporting everything. smaltkit's `typescript` module imports `smaltty/strip`, and its
   `typecheck` worker `smaltty/check`.
