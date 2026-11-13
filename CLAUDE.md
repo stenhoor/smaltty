@@ -82,7 +82,10 @@ NODE_PATH=$(npm root -g) node scripts/downstream.mjs   # the downstream check: t
 - Erasable syntax only: `enum`, `namespace` with values and constructor parameter properties are reported, not
   transformed.
 - A checker error that tsc doesn't report is a bug. Anything the checker doesn't model is unknown and quiet.
-- Checking schemas (table and column names) is out of scope: that is the future smaltsc project.
+- Checking is for smalt code (the owner's decision, 2026-11-13): milestones 12–15, not parity with tsc. Out of scope
+  and not to be proposed: older JavaScript output, `.d.ts` output, `tsconfig` and full module resolution, checking
+  JavaScript files, editor features, and checking schemas (table and column names: the future smaltsc project). See
+  docs/DESIGN.md, "Goals, in order".
 
 ## Working rules for sessions
 
