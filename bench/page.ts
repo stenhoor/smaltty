@@ -17,7 +17,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
-import { checkWorkloads } from './corpus.ts';
+import { checkWorkloads, editInside } from './corpus.ts';
 import { entryPoints, moduleGraph } from './entries.ts';
 import { firstCheckWorkloads, type FirstCheckWorkload } from './first-check.ts';
 import { prepare } from 'smaltty';
@@ -73,12 +73,17 @@ interface Workload {
   root: string;
   packages: Record<string, string>;
   files: Record<string, string>;
+  /** The root edited inside its middle statement, a series of three (milestone 12). */
+  edits: string[];
 }
-const workloads: Workload[] = checkWorkloads().map((w) => ({ label: w.label, root: w.root, packages: w.packages, files: Object.fromEntries(w.files) }));
+const workloads: Workload[] = checkWorkloads().map((w) => ({ label: w.label, root: w.root, packages: w.packages, files: Object.fromEntries(w.files), edits: [0, 1, 2].map((k) => editInside(w.files.get(w.root)!, k)) }));
 const runs = quick ? 1 : 5;
 const browser = await chromium.launch();
 
-/** smaltty in a fresh page: load, then per workload a cold check and the median of checks after an edit (a cache kept). */
+/**
+ * smaltty in a fresh page: load, then per workload a cold check and the median of checks after an edit, with a cache
+ * that keeps each statement's results and with one that keeps the parsed files only (`statements: false`).
+ */
 async function smalttyPage() {
   const page = await browser.newPage();
   await page.goto(base);
@@ -87,24 +92,28 @@ async function smalttyPage() {
       const t = performance.now();
       const m = (await import('/smaltty/' + 'index.js')) as typeof import('smaltty');
       const load = performance.now() - t;
-      const out: { label: string; cold: number; edit: number; errors: number }[] = [];
+      const out: { label: string; cold: number; edit: number; whole: number; errors: number }[] = [];
       for (const w of workloads) {
         const files = new Map(Object.entries(w.files));
         const opts = { roots: [w.root], packages: w.packages };
         let s = performance.now();
         const errors = m.check(files, opts).length;
         const cold = performance.now() - s;
-        const cache = m.checkCache();
-        m.check(files, { ...opts, cache });
-        const edits: number[] = [];
-        for (let i = 0; i < Math.max(runs, 5); i++) {
-          files.set(w.root, `${w.files[w.root]}\n// edit ${i}`);
-          s = performance.now();
+        const after = (statements: boolean) => {
+          const cache = m.checkCache({ statements });
+          files.set(w.root, w.files[w.root]!);
           m.check(files, { ...opts, cache });
-          edits.push(performance.now() - s);
-        }
-        edits.sort((a, b) => a - b);
-        out.push({ label: w.label, cold, edit: edits[edits.length >> 1]!, errors });
+          const edits: number[] = [];
+          for (let i = 0; i < Math.max(runs, 5) * 3; i++) {
+            files.set(w.root, w.edits[i % 3]!);
+            s = performance.now();
+            m.check(files, { ...opts, cache });
+            edits.push(performance.now() - s);
+          }
+          edits.sort((a, b) => a - b);
+          return edits[edits.length >> 1]!;
+        };
+        out.push({ label: w.label, cold, edit: after(true), whole: after(false), errors });
       }
       return { load, out };
     },
@@ -135,7 +144,7 @@ async function tsrsPage() {
         };
         const first = await once(w.files[w.root]);
         const edits: number[] = [];
-        for (let i = 0; i < runs; i++) edits.push((await once(`${w.files[w.root]}\n// edit ${i}`)).ms);
+        for (let i = 0; i < runs; i++) edits.push((await once(w.edits[i % 3]!)).ms);
         edits.sort((a, b) => a - b);
         out.push({ label: w.label, cold: first.ms, edit: edits[edits.length >> 1]!, errors: first.errors });
       }
@@ -224,7 +233,7 @@ async function firstCheckPage(w: FirstCheckWorkload, index: number, mode: 'text'
     await page.goto(base);
     return page
       .evaluate(
-        async ({ w, index, mode, warm, runs }: { w: FirstCheckWorkload; index: number; mode: string; warm: boolean; runs: number }) => {
+        async ({ w, index, mode, warm, runs, edited }: { w: FirstCheckWorkload; index: number; mode: string; warm: boolean; runs: number; edited: string[] }) => {
           // The setup as the app has it before the worker starts: fetched, so no network time is counted.
           const prepared = mode === 'prepared' ? new Uint8Array(await (await fetch('/data/' + index + '.prep')).arrayBuffer()) : undefined;
           const files = mode === 'prepared' ? {} : w.libs;
@@ -256,12 +265,12 @@ async function firstCheckPage(w: FirstCheckWorkload, index: number, mode: 'text'
           const edits: number[] = [];
           for (let i = 0; i < Math.max(runs, 5); i++) colds.push((await ask(w.code + '\n// cold ' + i, true)).ms);
           await ask(w.code);
-          for (let i = 0; i < Math.max(runs, 5); i++) edits.push((await ask(w.code + '\n// edit ' + i)).ms);
+          for (let i = 0; i < Math.max(runs, 5); i++) edits.push((await ask(edited[i % 3]!)).ms);
           worker.terminate();
           const median = (xs: number[]) => xs.sort((a, b) => a - b)[xs.length >> 1]!;
           return { fromStart: first ? first.at - t0 : 0, firstCall: first?.ms ?? 0, warmed, cold: median(colds), edit: median(edits), errors: first?.errors ?? [] };
         },
-        { w, index, mode, warm, runs },
+        { w, index, mode, warm, runs, edited: [0, 1, 2].map((k) => editInside(w.code, k)) },
       )
       .finally(() => page.close());
   };
@@ -333,14 +342,14 @@ console.log('| --- | ---: | ---: |');
 console.log(`| smaltty (\`dist/*.js\`) | ${size(smalttyFiles)} | ${fmt(sm.load)} |`);
 console.log(`| tsrs (\`@tsrs/wasm\`: browser.js, core.js, tsrs.wasm) | ${size(tsrsFiles)} | ${fmt(ts.load)} |`);
 console.log();
-console.log('| Workload | smaltty cold | tsrs first check | smaltty after an edit | tsrs after an edit |');
-console.log('| --- | ---: | ---: | ---: | ---: |');
+console.log('| Workload | smaltty cold | tsrs first check | smaltty after an edit | smaltty after an edit, whole file | tsrs after an edit |');
+console.log('| --- | ---: | ---: | ---: | ---: | ---: |');
 const rows = sm.out.map((s, i) => ({ s, t: ts.out[i]! }));
 const smaltts = rows.filter((r) => r.s.label.startsWith('smaltts '));
 const cell = (f: (r: (typeof rows)[number]) => number) => `${fmt(median(smaltts.map(f)))} (${fmt(Math.max(...smaltts.map(f)))})`;
-console.log(`| smaltts's examples (${smaltts.length}) | **${cell((r) => r.s.cold)}** | ${cell((r) => r.t.cold)} | **${cell((r) => r.s.edit)}** | ${cell((r) => r.t.edit)} |`);
+console.log(`| smaltts's examples (${smaltts.length}) | **${cell((r) => r.s.cold)}** | ${cell((r) => r.t.cold)} | **${cell((r) => r.s.edit)}** | ${cell((r) => r.s.whole)} | ${cell((r) => r.t.edit)} |`);
 for (const r of rows.filter((r) => !r.s.label.startsWith('smaltts '))) {
-  console.log(`| ${r.s.label.replace(/^smaltdf (.*)$/, 'smaltdf: `$1`')} | **${fmt(r.s.cold)}** | ${fmt(r.t.cold)} | **${fmt(r.s.edit)}** | ${fmt(r.t.edit)} |`);
+  console.log(`| ${r.s.label.replace(/^smaltdf (.*)$/, 'smaltdf: `$1`')} | **${fmt(r.s.cold)}** | ${fmt(r.t.cold)} | **${fmt(r.s.edit)}** | ${fmt(r.s.whole)} | ${fmt(r.t.edit)} |`);
 }
 console.log();
 console.log(`Errors of the checked codes found (all workloads as written): smaltty ${sm.out.reduce((n, r) => n + r.errors, 0)}, tsrs ${ts.out.reduce((n, r) => n + r.errors, 0)}.`);

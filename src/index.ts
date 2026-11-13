@@ -8,7 +8,7 @@
  */
 export { parse, type ParseOptions } from './parser.js';
 export { bind, Bindings, Meaning, type BindSymbol } from './binder.js';
-export { check, checkCache, expectations, type CheckCache, type CheckOptions, type Diagnostic, type Expectation } from './checker.js';
+export { check, checkCache, expectations, type CheckCache, type CheckOptions, type Diagnostic, type Expectation, type StatementResults } from './checker.js';
 export { prepare, readPrepared, PreparedFiles, PREPARED_FORMAT } from './prepared.js';
 export { strip, transpile, type StripOptions, type Transpiler, type TranspileOptions } from './strip.js';
 export { Tree } from './tree.js';

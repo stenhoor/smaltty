@@ -58,6 +58,7 @@ export default defineConfig({
           { text: 'Parsing', link: '/guide/parsing' },
           { text: 'Binding names', link: '/guide/binding' },
           { text: 'Prepared declarations', link: '/guide/prepared' },
+          { text: 'Re-checks', link: '/guide/rechecks' },
           { text: 'Status', link: '/guide/status' },
         ],
       },

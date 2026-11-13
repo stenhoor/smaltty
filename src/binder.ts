@@ -27,6 +27,17 @@ export interface BindSymbol {
   declarations: number[];
 }
 
+/**
+ * A file's top-level names: its own scope's (a module's, or the global scope for a script) and the global scope's,
+ * which `declare global` adds to; name to symbol index + 1. The checker keys a statement's results by them.
+ */
+export interface TopNames {
+  readonly file: ReadonlyMap<string, number>;
+  readonly global: ReadonlyMap<string, number>;
+  readonly module: boolean;
+  readonly strict: boolean;
+}
+
 /** The binder's answer for a tree. */
 export class Bindings {
   readonly tree: Tree;
@@ -37,6 +48,8 @@ export class Bindings {
   readonly meaningOf: Uint8Array;
   /** Per node: its parent (0 for the root). */
   readonly parent: Int32Array;
+  /** The file's top-level names, from bind() (not kept in prepared declarations). */
+  top: TopNames | undefined = undefined;
 
   /** Empty bindings for `tree`, or, with `bound`, bindings already made (prepared declarations read back). */
   constructor(tree: Tree, bound?: { readonly symbols: BindSymbol[]; readonly symbolOf: Int32Array; readonly meaningOf: Uint8Array; readonly parent: Int32Array }) {
@@ -122,10 +135,12 @@ class Binder {
     }
     const module = isModule(t);
     this.strict = module || hasUseStrict(t, t.root);
+    const strict = this.strict;
     const fileScope = module ? new Scope(this.global, t.root) : this.global;
     this.scopes.set(t.root, fileScope);
     this.declareIn(t.root, fileScope, fileScope);
     this.resolveIn(t.root, fileScope);
+    this.b.top = { file: fileScope.names, global: this.global.names, module, strict };
     return this.b;
   }
 

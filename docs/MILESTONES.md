@@ -264,8 +264,8 @@ The plan, as it was:
 
 ## 11. Prepared declarations: the first check
 
-Status: built, 2026-11-13, and released as smaltty 0.12.0 (tag `v0.12.0`); smaltkit, smaltui and smaltnb take it on
-their branches `claude/prepared-declarations`. What was built:
+Status: built, 2026-11-13, and released as smaltty 0.12.0 (tag `v0.12.0`); smaltkit, smaltui and smaltnb have taken it
+(stenhoor/smaltkit#27, stenhoor/smaltui#47 and #48, stenhoor/smaltnb#43 and #44, merged). What was built:
 
 - `prepare(files)` and `readPrepared(buffer)` (`src/prepared.ts`, exported from `smaltty/check` and `smaltty`): the
   files' text, trees and bindings as one buffer, with a format version, smaltty's version and a fingerprint of the node
@@ -302,6 +302,15 @@ The plan, as it was:
   errors found are the same as from `.d.ts` text.
 
 ## 12. Incremental re-checks
+
+Status: built, 2026-11-13, for smaltty 0.13.0 (not yet released). `checkCache()` keeps each root's results statement by
+statement (`CheckCache.statements`); an edit re-parses the root and checks only the top-level statements whose text, or
+the declarations they use, changed, and moves the others' errors where text before them moved. A re-check of
+`generated/40k.ts` after a one-line edit takes 2.52 ms (22.02 ms checked whole); app code 0.04–0.19 ms (from 0.14–0.36
+ms); `test/incremental.test.ts` holds every result to a cold check's, on every workload and mutant and every kind of
+edit. Where a statement's dependencies can't be told (a `declare module` block in the root, a root that imports
+itself) the whole file is checked again. Measured in [BENCHMARKS.md](BENCHMARKS.md), "What milestone 12 says"; how it
+works in the guide's [Re-checks](guide/rechecks.md). The plan, as it was:
 
 - Results kept per top-level statement and per notebook cell, keyed by its text and the declarations it uses (ty's
   incremental queries, DESIGN.md). An edit re-parses the file (parsing is cheap) and re-checks only the statements
