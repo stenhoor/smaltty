@@ -320,7 +320,7 @@ works in the guide's [Re-checks](guide/rechecks.md). The plan, as it was:
 
 ## 13. Checking through syntax errors
 
-Status: built in smaltty, 2026-11-13, for 0.14.0 (not released yet). `check()`'s `syntax: 'tolerant'`, off by default:
+Status: built, 2026-11-13, and released as smaltty 0.14.0 (tag `v0.14.0`); the apps turn it on in their own follow-ups. `check()`'s `syntax: 'tolerant'`, off by default:
 the top-level statement a syntax error is in is blanked up to the next line that could start a statement where the
 rest parses, reported (TypeScript's code for the error where it has one, else 1000), and the rest of the file checked;
 `parse()` is unchanged. `test/tolerant.test.ts` adds a syntax error of eight kinds to one statement of every mutant of
