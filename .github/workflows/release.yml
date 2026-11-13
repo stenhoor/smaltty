@@ -1,0 +1,68 @@
+name: Release
+
+# Tags a release (ADR 0030, decision 1), run by hand on main once the release commit is merged:
+#   Actions → Release → Run workflow, version e.g. 0.11.0
+# It tags only what the release rule allows: main's package.json and VERSION are that version, CHANGELOG.md dates it,
+# the tag doesn't exist yet, and the downstream check (the consumers' own tests against this smaltty) passes on this
+# very commit, run here first. Then it pushes the annotated tag v<version> on that commit. It creates no GitHub release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'The version to tag, as in package.json (e.g. 0.11.0)'
+        required: true
+
+permissions:
+  contents: write   # to push the tag
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check the version, the changelog and the tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::'$VERSION' is not a version like 0.11.0"; exit 1; }
+          pkg=$(node -p "require('./package.json').version")
+          [ "$pkg" = "$VERSION" ] || { echo "::error::package.json says $pkg, not $VERSION: merge the release commit first"; exit 1; }
+          grep -Eq "^export const VERSION = '$VERSION';" src/entry-strip.ts || { echo "::error::src/entry-strip.ts VERSION is not $VERSION"; exit 1; }
+          grep -Eq "^## $VERSION \([0-9]{4}-[0-9]{2}-[0-9]{2}\)$" CHANGELOG.md || { echo "::error::CHANGELOG.md has no dated '## $VERSION (YYYY-MM-DD)' heading"; exit 1; }
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null; then echo "::error::v$VERSION already exists"; exit 1; fi
+          echo "Tagging $(git rev-parse --short HEAD) as v$VERSION"
+
+      - run: npm ci          # also builds dist/ (prepare)
+      - run: npm test
+      # The downstream check on this commit, as in downstream.yml.
+      - run: npm install --prefix "$RUNNER_TEMP/pw" playwright && "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium
+      - run: node scripts/downstream.mjs --work "$RUNNER_TEMP/downstream"
+        env:
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules
+
+      - name: Tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # The tag's message: the version's first changelog paragraph.
+          summary=$(awk -v h="## $VERSION (" 'index($0, h) == 1 { on = 1; next } on && /^## / { exit } on && NF { print; n++ } on && n && !NF { exit }' CHANGELOG.md)
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "v$VERSION" -m "smaltty $VERSION" -m "$summary" -m "Tagged by the Release workflow after the downstream check passed on this commit (ADR 0030)."
+          git push origin "refs/tags/v$VERSION"
+          echo "::notice::Pushed v$VERSION on $(git rev-parse --short HEAD)"
