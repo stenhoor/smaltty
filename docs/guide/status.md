@@ -1,6 +1,6 @@
 # Status
 
-**In development.** smaltty is 0.11.0 (milestone 10; 0.9.0 shipped in smaltworks 0.9.0) and not on npm yet. The plan and its order are in [Milestones](../MILESTONES).
+**In development.** smaltty is 0.12.0 (milestone 11; 0.9.0 shipped in smaltworks 0.9.0) and not on npm yet. The plan and its order are in [Milestones](../MILESTONES).
 
 | Milestone | Status |
 | --- | --- |
@@ -14,7 +14,7 @@
 | 8. Checking in the apps | Done: smaltui and smaltnb mark type errors as warnings |
 | 9. TypeScript 7 as the reference | Done, 2026-11-12: the checker is compared with TypeScript 7, and a downstream check runs the consumers' tests ([ADR 0029](../adr/0029-after-the-checker-trial), [ADR 0030](../adr/0030-changing-smaltty-without-breaking-its-consumers)). Released as 0.10.0 |
 | 10. Entry points and size | Released as 0.11.0: `smaltty/strip`, `smaltty/bind` and `smaltty/check`; the stripping path is 24.5 KB gzipped. The apps load the checker only in its worker once they take smaltkit's change |
-| 11. Prepared declarations | Built, for 0.12.0: `prepare()`, and `check()`'s `prepared`; the built-in types prepared when smaltty is built. With the checker's worker warmed while the page is idle, a page's first check takes 9–14 ms (from 21–71 ms) |
+| 11. Prepared declarations | Released as 0.12.0: `prepare()`, and `check()`'s `prepared`; the built-in types prepared when smaltty is built. With the checker's worker warmed while the page is idle, a page's first check takes 9–14 ms (from 21–71 ms) |
 | 12–15. Re-checks, then coverage | Next, in order |
 
 Everything before 1.0 can change: [work in progress, come build with us](https://smaltworks.dev/stability).

@@ -264,8 +264,8 @@ The plan, as it was:
 
 ## 11. Prepared declarations: the first check
 
-Status: built, 2026-11-13, for smaltty 0.12.0 (not released: the release follows the smaltkit, smaltui and smaltnb
-branches `claude/prepared-declarations`, which take it). What was built:
+Status: built, 2026-11-13, and released as smaltty 0.12.0 (tag `v0.12.0`); smaltkit, smaltui and smaltnb take it on
+their branches `claude/prepared-declarations`. What was built:
 
 - `prepare(files)` and `readPrepared(buffer)` (`src/prepared.ts`, exported from `smaltty/check` and `smaltty`): the
   files' text, trees and bindings as one buffer, with a format version, smaltty's version and a fingerprint of the node
