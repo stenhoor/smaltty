@@ -7,6 +7,35 @@ smaltworks 0.9.0. Each milestone from 9 on ends in a release, tagged only with t
 behaviour, and says how here; a patch release doesn't. Each entry marks what a consumer can see: an API, a default, an
 error code, a message.
 
+## 0.13.0 (unreleased)
+
+Milestone 12: incremental re-checks ([ADR 0029](docs/adr/0029-after-the-checker-trial.md), decision 2). The errors,
+their order, the defaults and the messages are 0.12.0's: a check with a cache finds exactly what a check without one
+finds.
+
+### Behaviour a consumer can see
+
+- `checkCache()` keeps each root's results statement by statement (`CheckCache.statements`, a new optional field): a
+  check after an edit parses the root again and checks only the top-level statements whose text, or the declarations
+  they use, changed; the others keep their errors, moved where text before them moved. A notebook's cells are top-level
+  statements, so an edit checks its cell and the cells that read what it declares. What a statement depends on, and
+  where everything is checked again, is in the guide's [Re-checks](docs/guide/rechecks.md). A re-check of the 40 KB
+  generated script after a one-line edit takes 2.52 ms (from 22.02 ms checked whole); app code 0.04–0.19 ms (from 0.14–0.36 ms).
+- `checkCache({ statements: false })`, and a `CheckCache` made by hand without `statements` (as before 0.13.0), keep
+  only the parsed files: each root is checked whole, as in 0.12.0.
+- `StatementResults` (exported type): what `cache.statements.get(root)` says of the last check, `reused` statements and
+  `checked` statements.
+- `Bindings.top` (set by `bind()`, undefined for prepared declarations): the file's top-level names, the scopes a
+  statement's names resolve in, with whether the file is a module and strict.
+
+### Tooling
+
+- `test/incremental.test.ts`: a check with a cache against one without, after every kind of edit, on every checker
+  workload and every mutant.
+- `npm run bench`'s and `bench/page.ts`'s "after an edit" is now a one-line edit inside the root's middle statement
+  (`editInside` in `bench/corpus.ts`), not a comment appended, with a "whole file" column for a cache that keeps the
+  parsed files only.
+
 ## 0.12.0 (2026-11-13)
 
 Milestone 11: prepared declarations, the first check ([ADR 0029](docs/adr/0029-after-the-checker-trial.md), decision
