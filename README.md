@@ -13,14 +13,16 @@ top-level smalt product: it parses, strips, binds and type-checks TypeScript in 
 - **Binding:** which declaration each name means, the way TypeScript's checker says.
 
 ```ts
-import { strip } from 'smaltty';
+import { strip } from 'smaltty/strip';
 
 strip("const n: number = 2;\ntable('orders').head(n)");
 // "const n         = 2;\ntable('orders').head(n)"
 ```
 
-smaltty is not on npm yet: depend on a commit (`"smaltty": "github:stenhoor/smaltty#<commit>"`). The smalt apps use it
-through `smaltkit/typescript`.
+`smaltty/strip` loads only the scanner, parser and stripper; `smaltty/check` the checker, for the worker that checks;
+`smaltty` everything ([entry points](https://stenhoor.github.io/smaltty/guide/getting-started#entry-points)). smaltty
+is not on npm yet: depend on a commit (`"smaltty": "github:stenhoor/smaltty#<commit>"`). The smalt apps use it
+through `smaltkit/typescript` and `smaltkit/typecheck`.
 
 ```bash
 npm install && npm test     # build, then the tests (which compare smaltty with TypeScript)

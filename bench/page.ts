@@ -7,6 +7,8 @@
 //
 //   NODE_PATH=$(npm root -g) npm run bench:page
 //   NODE_PATH=$(npm root -g) npm run bench:page -- --quick   # one run each: checks the harness, not a measurement
+//   NODE_PATH=$(npm root -g) node bench/page.ts --entries --dist=<dir>   # only the entry points' loading, from another
+//                                                                         # build of dist/ (a minified one, to compare)
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -14,8 +16,11 @@ import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { checkWorkloads } from './corpus.ts';
+import { entryPoints, moduleGraph } from './entries.ts';
 
 const quick = process.argv.includes('--quick');
+const entriesOnly = process.argv.includes('--entries');
+const distArg = process.argv.find((a) => a.startsWith('--dist='))?.slice('--dist='.length);
 const require = createRequire(import.meta.url);
 /** As much of Playwright as this uses (it isn't a dependency, so its types aren't here). */
 interface Page {
@@ -25,22 +30,23 @@ interface Page {
 }
 const { chromium } = require('playwright') as { chromium: { launch(): Promise<{ newPage(): Promise<Page>; version(): string; close(): Promise<void> }> } };
 const root = fileURLToPath(new URL('..', import.meta.url));
+const dist = distArg ?? join(root, 'dist');
 const tsrsDir = dirname(require.resolve('@tsrs/wasm/package.json'));
 const tsrsVersion = (JSON.parse(readFileSync(join(tsrsDir, 'package.json'), 'utf8')) as { version: string }).version;
 
 // What each page downloads: smaltty's dist/*.js; tsrs's browser.js, core.js and tsrs.wasm.
-const smalttyFiles = readdirSync(join(root, 'dist')).filter((f) => f.endsWith('.js')).map((f) => join(root, 'dist', f));
+const smalttyFiles = readdirSync(dist).filter((f) => f.endsWith('.js')).map((f) => join(dist, f));
 const tsrsFiles = ['browser.js', 'core.js', 'tsrs.wasm'].map((f) => join(tsrsDir, f));
 const size = (files: string[]) => {
   const raw = files.reduce((n, f) => n + statSync(f).size, 0);
   const gz = files.reduce((n, f) => n + gzipSync(readFileSync(f)).length, 0);
-  return `${(raw / 1024).toFixed(0)} KB (${(gz / 1024).toFixed(0)} KB gzipped)`;
+  return `${(raw / 1024).toFixed(0)} KB (${(gz / 1024).toFixed(1)} KB gzipped)`;
 };
 
 const TYPES: Record<string, string> = { '.js': 'text/javascript', '.wasm': 'application/wasm', '.html': 'text/html' };
 const server = createServer((req, res) => {
   const url = req.url ?? '/';
-  const file = url === '/' ? null : url.startsWith('/smaltty/') ? join(root, 'dist', url.slice(9)) : url.startsWith('/tsrs/') ? join(tsrsDir, url.slice(6)) : null;
+  const file = url === '/' ? null : url.startsWith('/smaltty/') ? join(dist, url.slice(9)) : url.startsWith('/tsrs/') ? join(tsrsDir, url.slice(6)) : null;
   if (url === '/') return res.writeHead(200, { 'content-type': 'text/html' }).end('<!doctype html><title>checkers</title>');
   try {
     res.writeHead(200, { 'content-type': TYPES[extname(file!)] ?? 'application/octet-stream' }).end(readFileSync(file!));
@@ -129,14 +135,52 @@ async function tsrsPage() {
   ).finally(() => page.close());
 }
 
-const sm = await smalttyPage();
-const ts = await tsrsPage();
+/**
+ * Each entry point in fresh pages: from the first import to its first use (a line stripped; a line parsed and bound; a
+ * one-line check), the median of runs. The module graph is fetched over the local server, so without network time.
+ */
+async function entryPage(file: string, runs: number): Promise<number> {
+  const samples: number[] = [];
+  for (let i = 0; i < runs; i++) {
+    const page = await browser.newPage();
+    await page.goto(base);
+    samples.push(
+      await page
+        .evaluate(async (file: string) => {
+          const t = performance.now();
+          const m = (await import('/smaltty/' + file)) as Record<string, any>;
+          if (m.strip) m.strip('let a: number = 1');
+          else if (m.check) m.check(new Map([['/a.ts', 'let a: number = 1;']]));
+          else m.bind?.((await import('/smaltty/' + 'entry-strip.js')).parse('let a = 1;'));
+          return performance.now() - t;
+        }, file)
+        .finally(() => page.close()),
+    );
+  }
+  samples.sort((a, b) => a - b);
+  return samples[samples.length >> 1]!;
+}
+const entryLoads: { name: string; files: string[]; ms: number }[] = [];
+for (const e of entryPoints()) {
+  if (e.name === 'smaltty/bind') continue; // it parses nothing: measured with smaltty/strip, in its graph
+  entryLoads.push({ name: e.name, files: moduleGraph(e.file).map((f) => join(dist, f)), ms: await entryPage(e.file, quick ? 1 : 15) });
+}
+
+const sm = entriesOnly ? null : await smalttyPage();
+const ts = entriesOnly ? null : await tsrsPage();
 await browser.close();
 server.close();
 
 const fmt = (ms: number): string => (ms < 1 ? ms.toFixed(3) : ms < 100 ? ms.toFixed(2) : ms.toFixed(0));
+console.log(`Chromium ${browser.version()}.${quick ? ' **Quick run: one iteration, not a measurement.**' : ''}`);
+console.log();
+console.log('| Entry point | Modules | Downloads | Load and first use (ms) |');
+console.log('| --- | ---: | ---: | ---: |');
+for (const e of entryLoads) console.log(`| \`${e.name}\` | ${e.files.length} | ${size(e.files)} | ${fmt(e.ms)} |`);
+console.log();
+if (!sm || !ts) process.exit(0);
 const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[xs.length >> 1]!;
-console.log(`Chromium ${browser.version()}, @tsrs/wasm ${tsrsVersion}.${quick ? ' **Quick run: one iteration, not a measurement.**' : ''}`);
+console.log(`@tsrs/wasm ${tsrsVersion}.`);
 console.log();
 console.log(`| | Downloads | Load (ms) |`);
 console.log('| --- | ---: | ---: |');

@@ -8,7 +8,8 @@ wraps it for the apps. Read [docs/DESIGN.md](docs/DESIGN.md) first: it holds the
 Milestones 1–9 are done (through the checker, checking in the apps, and TypeScript 7 as the checker's reference;
 9's release is 0.10.0); milestones 9–15 were decided at gate D (2026-11-12) in
 docs/adr/0029-after-the-checker-trial.md, with how they reach consumers in
-docs/adr/0030-changing-smaltty-without-breaking-its-consumers.md; milestone 10 is next. See docs/MILESTONES.md.
+docs/adr/0030-changing-smaltty-without-breaking-its-consumers.md; milestone 10 (entry points and size) is done in
+smaltty and not yet released (0.11.0), and milestone 11 is next. See docs/MILESTONES.md.
 Several Claude Code sessions work on the smalt repos in parallel and cannot see each other: this file is the shared
 starting point, and its working rules match smaltdb's `CLAUDE.md`.
 
@@ -31,7 +32,10 @@ NODE_PATH=$(npm root -g) node scripts/downstream.mjs   # the downstream check: t
 - `src/`: `scanner.ts` (tokens on demand), `parser.ts` (TypeScript's grammar, TypeScript's tree shapes), `tree.ts` (the
   flat tree), `strip.ts` (types to spaces), `binder.ts` (which declaration each name means), `checker.ts` (types
   of calls into the libraries a file imports, and tsc's errors on them), `kinds.ts` and `tokens.ts`
-  (codes). `test/` imports the package by name, so
+  (codes). The entry points (milestone 10): `index.ts` (`smaltty`, everything), `entry-strip.ts` (`smaltty/strip`:
+  scanner, parser, stripper), `entry-bind.ts` (`smaltty/bind`) and `entry-check.ts` (`smaltty/check`: binder and
+  checker); `test/entries.test.ts` holds each to the modules it loads. `dist/*.js` is built without comments, its
+  `.d.ts` with them. `test/` imports the package by name, so
   it tests the built output.
 - `test/compare.ts` flattens both trees for comparison; `node test/sweep.ts <paths>` compares the parser with TypeScript
   on any code (run it on the smalt repositories after a parser change). `node test/strip-sweep.ts <paths>` does the same

@@ -5,7 +5,7 @@ same children in the same order, and the same start and end for every node. Code
 this one.
 
 ```ts
-import { parse, K } from 'smaltty';
+import { parse, K } from 'smaltty/strip';
 
 const tree = parse('const a: number = 1;');
 tree.walk(tree.root, (n, depth) => console.log('  '.repeat(depth) + tree.kindName(n), tree.textOf(n)));

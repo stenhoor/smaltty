@@ -1,9 +1,11 @@
 /**
- * smaltty: smalt's own implementation of TypeScript, with no dependencies. So far: the parser (its tree follows TypeScript's own, stored flat)
- * and the stripper (types replaced by spaces, so lines and columns stay put). See docs/MILESTONES.md.
+ * smaltty: smalt's own implementation of TypeScript, with no dependencies: the parser (its tree follows TypeScript's
+ * own, stored flat), the stripper (types replaced by spaces, so lines and columns stay put), the binder and the checker.
+ * See docs/MILESTONES.md.
+ *
+ * Everything is exported here. A page that loads only part of it imports an entry point of its own: `smaltty/strip`
+ * (the scanner, parser and stripper), `smaltty/bind` (the binder) or `smaltty/check` (the binder and the checker).
  */
-import { transpile, type Transpiler } from './strip.js';
-
 export { parse, type ParseOptions } from './parser.js';
 export { bind, Bindings, Meaning, type BindSymbol } from './binder.js';
 export { check, checkCache, expectations, type CheckCache, type CheckOptions, type Diagnostic, type Expectation } from './checker.js';
@@ -11,10 +13,4 @@ export { strip, transpile, type StripOptions, type Transpiler, type TranspileOpt
 export { Tree } from './tree.js';
 export { K, F, KIND_NAMES, isTypeNode } from './kinds.js';
 export { ParseError } from './scanner.js';
-
-/** The package version, kept by hand until there is a build step that writes it. */
-export const VERSION = '0.10.0';
-
-/** The stripper as a Transpiler, for apps that offer more than one. */
-const smaltty: Transpiler = { name: 'smaltty', version: VERSION, transpile };
-export default smaltty;
+export { VERSION, default } from './entry-strip.js';

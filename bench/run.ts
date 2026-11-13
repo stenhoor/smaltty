@@ -4,7 +4,7 @@
 //   node bench/run.ts            full run (a few minutes)
 //   node bench/run.ts --quick    one iteration each
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { arch, cpus, platform } from 'node:os';
 import { gzipSync } from 'node:zlib';
@@ -13,6 +13,7 @@ import { transform } from 'sucrase';
 import { bind, check, checkCache, parse, strip } from 'smaltty';
 import { TSC7_VERSION, typescript7Checks } from '../test/checking.ts';
 import { tsrsChecks } from '../test/tsrs.ts';
+import { distUrl, entryPoints, moduleGraph, sizeOf } from './entries.ts';
 import { checkWorkloads, corpusFiles, generatedFiles, type CheckWorkload, type CorpusFile, type Group } from './corpus.ts';
 
 const quick = process.argv.includes('--quick');
@@ -274,22 +275,30 @@ function fresh(code: string, runs = quick ? 1 : 7, args: string[] = ['--input-ty
 
 const tsPath = require.resolve('typescript/lib/typescript.js');
 const tsText = readFileSync(tsPath);
-const distDir = new URL('../dist/', import.meta.url);
-const distFiles = readdirSync(distDir).filter((f) => f.endsWith('.js'));
-const distText = Buffer.concat(distFiles.map((f) => readFileSync(new URL(f, distDir))));
-const loadSmaltty = fresh(`const t = performance.now(); const { strip } = await import(${JSON.stringify(new URL('index.js', distDir).href)}); strip('let a: number = 1'); console.log(performance.now() - t);`);
+/** First use of each entry point: a line stripped, a line parsed and bound, a one-line check. */
+const firstUse: Record<string, string> = {
+  smaltty: `m.strip('let a: number = 1');`,
+  'smaltty/strip': `m.strip('let a: number = 1');`,
+  'smaltty/bind': `m.bind((await import(${JSON.stringify(distUrl('entry-strip.js'))})).parse('let a = 1;'));`,
+  'smaltty/check': `m.check(new Map([['/a.ts', 'let a: number = 1;']]));`,
+};
+const entries = entryPoints().map((e) => {
+  const files = moduleGraph(e.file);
+  const ms = fresh(`const t = performance.now(); const m = await import(${JSON.stringify(distUrl(e.file))}); ${firstUse[e.name] ?? ''} console.log(performance.now() - t);`);
+  return { ...e, files, ms, ...sizeOf(files) };
+});
 const loadSucrase = fresh(`const t = performance.now(); const { transform } = await import('sucrase'); transform('let a: number = 1', { transforms: ['typescript'] }); console.log(performance.now() - t);`);
 const loadTs = fresh(`import { readdirSync, readFileSync } from 'node:fs'; const text = readFileSync(${JSON.stringify(tsPath)}, 'utf8'); const t = performance.now(); const ts = new Function(text + '\\nreturn ts;')(); ts.transpileModule('let a: number = 1', {}); console.log(performance.now() - t);`);
 
 line('### Loading and size');
 line();
-line('Loading: a fresh process, from first use to the first stripped line, median of runs. smaltnb evaluates `lib/typescript.js` with `new Function`, as here. smaltty: all of `dist/*.js`, unminified.');
+line('Loading: a fresh process, from first use to the first stripped line, median of runs. smaltnb evaluates `lib/typescript.js` with `new Function`, as here. smaltty: each entry point, the modules it loads (its module graph in `dist/`, comments removed, not minified); gzipped is each module on its own, as a server sends them; for `smaltty/bind` and `smaltty/check` the first use is a line parsed and bound, a one-line check.');
 line();
 line('| Tool | Load (ms) | Size | Gzipped |');
 line('| --- | ---: | ---: | ---: |');
 line(`| sucrase (as \`@smaltworks/smaltdb-sucrase\` bundles it) | ${fmt(loadSucrase)} | ~200 KB | ~48 KB |`);
 line(`| TypeScript compiler (\`lib/typescript.js\`) | ${fmt(loadTs)} | ${kb(tsText.length)} KB | ${kb(gzipSync(tsText).length)} KB |`);
-line(`| smaltty (\`dist/*.js\`) | ${fmt(loadSmaltty)} | ${kb(distText.length)} KB | ${kb(gzipSync(distText).length)} KB |`);
+for (const e of entries) line(`| \`${e.name}\` (${e.files.length} modules) | ${fmt(e.ms)} | ${kb(e.raw)} KB | ${(e.gzipped / 1024).toFixed(1)} KB |`);
 line();
 line("sucrase's bundled size is from smaltdb-sucrase's README (an esbuild bundle of sucrase and its dependencies); smaltty doesn't bundle sucrase to measure it.");
 
