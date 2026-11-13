@@ -43,8 +43,22 @@ a distraction and waits.
 Not a goal: a 1:1 replacement for tsc. The design must not rule one out, but nothing commits to it. If the checker can't
 be made fast, smaltty stays the minimal kit from goal 1.
 
-Out of scope: checking table and column names against a database schema. That is a separate future project, **smaltsc**
-(smalt schema checker), parallel to smaltty.
+**Checking is for smalt code** (the owner's decision, 2026-11-13). The checker aims at the code the smalt apps run:
+TypeScript tabs, notebook cells and scripts calling into smaltdf, smaltts and the libraries the apps give them. Its
+target is milestones 12–15, about 90–95% of TypeScript's errors on that code, with none it doesn't report. Full parity
+with tsc is not a target: it would cost the size, the speed and the quiet unknowns (no false errors) that are the reason
+smaltty exists. Complete checking of the smalt repositories' own code is TypeScript 7's, in their CI (ADR 0030).
+
+Out of scope (the owner's decision, 2026-11-13), not to be proposed:
+
+- output for older JavaScript (downlevelling), and transforming what isn't erasable (`enum`, namespaces with values,
+  parameter properties): they are refused, as now;
+- writing declaration files (`.d.ts`);
+- `tsconfig`, projects and full module resolution: files, `packages` and `globals` are given by the caller;
+- checking JavaScript files (JSDoc types, `checkJs`);
+- editor features: completions, hover, go-to-definition;
+- checking table and column names against a database schema. That is a separate future project, **smaltsc** (smalt
+  schema checker), parallel to smaltty.
 
 ## Decisions
 
