@@ -6,7 +6,7 @@ smaltworks 0.9.0. Each milestone from 9 on ends in a release, tagged only with t
 behaviour, and says how here; a patch release doesn't. Each entry marks what a consumer can see: an API, a default, an
 error code, a message.
 
-## 0.10.0 (unreleased)
+## 0.10.0 (2026-11-13)
 
 Milestone 9: TypeScript 7 as the reference ([ADR 0029](docs/adr/0029-after-the-checker-trial.md)). Tooling only: the
 API, the defaults, the errors reported and their messages are those of 0.9.0, with one exception below.

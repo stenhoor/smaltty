@@ -1,6 +1,6 @@
 # Status
 
-**In development.** smaltty is 0.9.0 (released in smaltworks 0.9.0; 0.10.0 is next) and not on npm yet. The plan and its order are in [Milestones](../MILESTONES).
+**In development.** smaltty is 0.10.0 (milestone 9; 0.9.0 shipped in smaltworks 0.9.0) and not on npm yet. The plan and its order are in [Milestones](../MILESTONES).
 
 | Milestone | Status |
 | --- | --- |
@@ -12,7 +12,7 @@
 | 6. smaltnb moves over | Done: smaltnb runs no TypeScript compiler (confirmed 2026-11-12) |
 | 7. Checker trial | Done |
 | 8. Checking in the apps | Done: smaltui and smaltnb mark type errors as warnings |
-| 9. TypeScript 7 as the reference | Done, 2026-11-12: the checker is compared with TypeScript 7, and a downstream check runs the consumers' tests ([ADR 0029](../adr/0029-after-the-checker-trial), [ADR 0030](../adr/0030-changing-smaltty-without-breaking-its-consumers)). Its release, 0.10.0, is not tagged yet |
+| 9. TypeScript 7 as the reference | Done, 2026-11-12: the checker is compared with TypeScript 7, and a downstream check runs the consumers' tests ([ADR 0029](../adr/0029-after-the-checker-trial), [ADR 0030](../adr/0030-changing-smaltty-without-breaking-its-consumers)). Released as 0.10.0 |
 | 10–15. Speed in the page, then coverage | Next, in order |
 
 Everything before 1.0 can change: [work in progress, come build with us](https://smaltworks.dev/stability).
