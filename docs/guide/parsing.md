@@ -37,6 +37,7 @@ Modifiers and punctuation are not nodes, as they are in TypeScript: a modifier i
 ## Errors
 
 The parser stops at the first syntax error and throws a `ParseError` with its line and column. There is no recovery.
+The checker can check through syntax errors, setting aside the statement each is in: see [Syntax errors](./syntax-errors).
 
 ## How it is checked
 

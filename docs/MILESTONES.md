@@ -320,6 +320,17 @@ works in the guide's [Re-checks](guide/rechecks.md). The plan, as it was:
 
 ## 13. Checking through syntax errors
 
+Status: built in smaltty, 2026-11-13, for 0.14.0 (not released yet). `check()`'s `syntax: 'tolerant'`, off by default:
+the top-level statement a syntax error is in is blanked up to the next line that could start a statement where the
+rest parses, reported (TypeScript's code for the error where it has one, else 1000), and the rest of the file checked;
+`parse()` is unchanged. `test/tolerant.test.ts` adds a syntax error of eight kinds to one statement of every mutant of
+the checker tests' workloads (about 2,000 files): one syntax error is reported, in or right after the statement, and the
+other errors are exactly a check's of the file without it, each one TypeScript 7 reports there. It works with the
+per-statement cache and prepared declarations. A tolerant check of a file with one syntax error takes about the time
+of the clean file, and the strict parse is no slower (BENCHMARKS.md, "What milestone 13 says"); how it works in the
+guide's [Syntax errors](guide/syntax-errors.md). The apps turning it on (smaltkit, smaltui, smaltnb, whose
+`parseTolerant` then goes from its checking path) are their own follow-ups. The plan, as it was:
+
 The owner's yes at gate D (2026-11-12): an exception to the node-for-node rule, for checking only.
 
 - A tolerant parse for checking: a syntax error is kept to its top-level statement (or cell), which is reported with

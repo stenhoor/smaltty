@@ -104,7 +104,9 @@ start and end for every node, so the tests compare the two node for node, and sm
 tree ports over by kind. It is stored flat: a row per node in typed arrays (kind, start, end, first child, next sibling,
 flags, operator), all in one buffer, built without an object per node. Modifiers and small facts (`?`, `!`, `...`,
 `export`, `type`-only) are flags, not nodes. The parser stops at the first syntax error, with its line and column; there
-is no recovery.
+is no recovery. The checker alone can read through one (milestone 13, ADR 0029 decision 4, off by default): the
+top-level statement the error is in is blanked and the rest parsed again, a tree that isn't TypeScript's of the file and
+is never used to strip.
 
 ### The stripper
 

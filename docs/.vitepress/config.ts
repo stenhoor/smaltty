@@ -59,6 +59,7 @@ export default defineConfig({
           { text: 'Binding names', link: '/guide/binding' },
           { text: 'Prepared declarations', link: '/guide/prepared' },
           { text: 'Re-checks', link: '/guide/rechecks' },
+          { text: 'Syntax errors', link: '/guide/syntax-errors' },
           { text: 'Status', link: '/guide/status' },
         ],
       },
