@@ -11,7 +11,7 @@ export { K, F, KIND_NAMES, isTypeNode } from './kinds.js';
 export { ParseError } from './scanner.js';
 
 /** The package version, kept by hand until there is a build step that writes it. */
-export const VERSION = '0.10.0';
+export const VERSION = '0.11.0';
 
 /** The stripper as a Transpiler, for apps that offer more than one. */
 const smaltty: Transpiler = { name: 'smaltty', version: VERSION, transpile };

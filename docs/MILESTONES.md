@@ -231,7 +231,7 @@ The plan, as it was:
 
 ## 10. Entry points and size
 
-Status: done in smaltty, 2026-11-13, not yet released (0.11.0). What was built:
+Status: done, 2026-11-13. Released as smaltty 0.11.0 (tag `v0.11.0`). What was built:
 
 - `smaltty/strip` (the scanner, parser and stripper), `smaltty/check` (the checker, its built-in types, the binder and
   the parser) and `smaltty/bind` (the binder alone), each loading only its own modules; `smaltty` still exports
@@ -250,7 +250,7 @@ Status: done in smaltty, 2026-11-13, not yet released (0.11.0). What was built:
   and the binder (28.7 KB gzipped) and no checker code, and smaltnb's page bundle has no smaltty at all (its kernel
   worker the stripping path and the binder, its type checker's worker the checker); before, both pages' threads or
   the kernel worker loaded all of smaltty. The downstream check passes on it and on the consumers' `main`.
-- **Left:** smaltkit's branch merged and its smaltty pin moved to the v0.11.0 tag once this is released; then smaltui
+- **Left:** smaltkit's change is merged (stenhoor/smaltkit#23); its smaltty pin moves to the v0.11.0 tag; then smaltui
   and smaltnb move their smaltkit pins, which is when the apps load the checker only in its worker.
 
 The plan, as it was:
