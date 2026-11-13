@@ -9,7 +9,7 @@ Milestones 1–9 are done (through the checker, checking in the apps, and TypeSc
 9's release is 0.10.0); milestones 9–15 were decided at gate D (2026-11-12) in
 docs/adr/0029-after-the-checker-trial.md, with how they reach consumers in
 docs/adr/0030-changing-smaltty-without-breaking-its-consumers.md; milestone 10 (entry points and size) is released as
-0.11.0 and milestone 11 (prepared declarations) as 0.12.0; milestone 12 (incremental re-checks) is built, for
+0.11.0 and milestone 11 (prepared declarations) as 0.12.0; milestone 12 (incremental re-checks) as
 0.13.0; milestone 13 (checking through syntax errors) is next. See
 docs/MILESTONES.md.
 Several Claude Code sessions work on the smalt repos in parallel and cannot see each other: this file is the shared

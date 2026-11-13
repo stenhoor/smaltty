@@ -1,6 +1,6 @@
 {
   "name": "smaltty",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "private": true,
   "description": "smalt's own implementation of TypeScript, with no dependencies: parser, type stripper, scope analysis and type checking for code written against smaltdf and smaltts",
   "license": "MIT",
