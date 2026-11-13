@@ -190,9 +190,8 @@ smaltty against tsc and tsrs, in Node and in Chromium; a slowdown is a regressio
 
 ## 9. TypeScript 7 as the reference
 
-Status: done, 2026-11-12, but for its release. **Unfinished:** smaltty 0.10.0 is not tagged yet: it is tagged once this
-is on `main` and the downstream workflow has run green there; then smaltkit and smaltts move their pins to the tag
-(their own sessions' work).
+Status: done, 2026-11-12. Released as smaltty 0.10.0 (tag `v0.10.0`, 2026-11-13), after the downstream workflow ran
+green on `main`. smaltkit and smaltts move their pins to the tag (their own sessions' work).
 
 - `typescript` is 6.0.3, for its API and for `tsc`, which builds `dist/`; TypeScript 7.0.2 is `typescript7` (an npm
   alias), and `npm run typecheck` runs on it.

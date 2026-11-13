@@ -6,7 +6,7 @@ and smaltts (smaltts's TypeScript tooling is smaltty: owner's decision,
 2026-11-10). It replaces sucrase in smaltui and the TypeScript compiler in smaltnb. smaltkit
 wraps it for the apps. Read [docs/DESIGN.md](docs/DESIGN.md) first: it holds the owner's decisions and their order.
 Milestones 1–9 are done (through the checker, checking in the apps, and TypeScript 7 as the checker's reference;
-9's release, 0.10.0, is not tagged yet); milestones 9–15 were decided at gate D (2026-11-12) in
+9's release is 0.10.0); milestones 9–15 were decided at gate D (2026-11-12) in
 docs/adr/0029-after-the-checker-trial.md, with how they reach consumers in
 docs/adr/0030-changing-smaltty-without-breaking-its-consumers.md; milestone 10 is next. See docs/MILESTONES.md.
 Several Claude Code sessions work on the smalt repos in parallel and cannot see each other: this file is the shared
