@@ -28,7 +28,7 @@ Times are medians after warm-up, in milliseconds. What is measured, and why:
   processes: neither has an API that keeps a program between checks.
 - **Loading:** from a fresh process to the first stripped line. smaltnb pays the compiler's load when its kernel starts.
 
-## Latest run: TypeScript 7 added, 2026-11-12
+## Latest run: milestone 10, 2026-11-13
 
 Node v22.23.4, linux x64, Intel(R) Xeon(R) Processor @ 2.10GHz (4 threads). sucrase 3.35.1, typescript 6.0.3, TypeScript 7 7.0.2, tsrs 0.24.0-ts7.1.0-beta.
 
@@ -38,20 +38,20 @@ Median milliseconds to process the whole group once, on the files every tool acc
 
 | Corpus | Files | Size (KB) | sucrase strip | `transpileModule` | smaltty strip | TypeScript parse | smaltty parse | Parse + resolve names (smaltnb) | smaltty parse + bind |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| App code (smaltui tabs, smaltnb notebooks) | 4 | 2.9 | 0.136 | 4.28 | **0.073** | 0.231 | **0.073** | 4.64 | **0.102** |
-| Library code (smaltdf, smaltnb, smaltkit, smaltui) | 13 | 125 | 10.91 | 104 | **5.01** | 16.61 | **3.96** | 105 | **6.07** |
-| Syntax edge cases | 6 | 7.8 | 0.833 | 14.81 | **0.508** | 1.57 | **0.374** | 10.32 | **0.585** |
-| Generated script, 40 KB | 1 | 39 | 2.78 | 27.27 | **1.96** | 6.36 | **1.35** | 45.68 | **2.14** |
-| Generated script, 400 KB | 1 | 391 | 66.99 | 253 | **19.17** | 69.91 | **14.60** | 700 | **18.54** |
+| App code (smaltui tabs, smaltnb notebooks) | 4 | 2.9 | 0.125 | 4.41 | **0.084** | 0.233 | **0.066** | 3.26 | **0.085** |
+| Library code (smaltdf, smaltnb, smaltkit, smaltui) | 13 | 125 | 8.33 | 86.25 | **4.60** | 14.40 | **3.85** | 88.54 | **5.37** |
+| Syntax edge cases | 6 | 7.8 | 0.791 | 12.48 | **0.398** | 1.27 | **0.333** | 8.48 | **0.518** |
+| Generated script, 40 KB | 1 | 39 | 2.38 | 24.94 | **1.70** | 4.87 | **1.16** | 36.66 | **2.00** |
+| Generated script, 400 KB | 1 | 391 | 58.63 | 227 | **14.76** | 49.54 | **13.70** | 567 | **20.52** |
 
 ### App code, per file
 
 | File | Size (bytes) | sucrase strip | `transpileModule` | smaltty strip | smaltty parse | Parse + resolve names | smaltty parse + bind |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `apps/smaltnb-regional.nb.ts` | 1147 | 0.055 | 1.54 | **0.044** | **0.037** | 1.71 | **0.049** |
-| `apps/smaltnb-shop.nb.ts` | 945 | 0.032 | 1.23 | **0.024** | **0.021** | 0.873 | **0.028** |
-| `apps/smaltui-demo-frames.ts` | 719 | 0.025 | 0.843 | **0.016** | **0.014** | 0.591 | **0.020** |
-| `apps/smaltui-starter.ts` | 190 | 0.003 | 0.510 | **0.003** | **0.003** | 0.134 | **0.003** |
+| `apps/smaltnb-regional.nb.ts` | 1147 | 0.057 | 1.37 | **0.037** | **0.032** | 1.53 | **0.045** |
+| `apps/smaltnb-shop.nb.ts` | 945 | 0.031 | 0.959 | **0.022** | **0.020** | 0.782 | **0.027** |
+| `apps/smaltui-demo-frames.ts` | 719 | 0.023 | 0.716 | **0.016** | **0.014** | 0.508 | **0.020** |
+| `apps/smaltui-starter.ts` | 190 | 0.004 | 0.419 | **0.003** | **0.003** | 0.106 | **0.004** |
 
 ### Full type check (reference for phase 1)
 
@@ -59,11 +59,11 @@ Median milliseconds to process the whole group once, on the files every tool acc
 
 | File | tsc cold | tsc warm | TypeScript 7: process (own time) |
 | --- | ---: | ---: | ---: |
-| `apps/smaltnb-regional.nb.ts` | 43.36 | 5.36 | 40.26 (24.00) |
-| `apps/smaltnb-shop.nb.ts` | 40.06 | 2.15 | 35.38 (18.00) |
-| `apps/smaltui-demo-frames.ts` | 36.18 | 1.75 | 33.03 (19.00) |
-| `apps/smaltui-starter.ts` | 33.77 | 1.24 | 33.83 (17.00) |
-| `generated/40k.ts` | 107 | 64.85 | 48.72 (32.00) |
+| `apps/smaltnb-regional.nb.ts` | 39.80 | 5.04 | 34.01 (18.00) |
+| `apps/smaltnb-shop.nb.ts` | 35.48 | 1.91 | 37.34 (18.00) |
+| `apps/smaltui-demo-frames.ts` | 33.38 | 1.64 | 36.16 (18.00) |
+| `apps/smaltui-starter.ts` | 35.05 | 1.16 | 34.47 (18.00) |
+| `generated/40k.ts` | 105 | 60.39 | 49.72 (32.00) |
 
 ### Checking
 
@@ -71,20 +71,23 @@ One user file checked with the library it calls, read from source (smaltts's 16 
 
 | Workload | smaltty first check | smaltty cold | tsc cold | TypeScript 7: process (own time) | tsrs: process (own time) | smaltty after an edit | tsc after an edit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| smaltts's reference and guide examples (14) | 57.23 (71.98) | **6.84 (9.11)** | 114 (125) | 124 (150) (96.00) | 76.74 (99.56) (28.00) | **0.394 (0.715)** | 18.55 (25.17) |
-| smaltdf: `smaltnb-regional.nb.ts` | 25.44 | **1.98** | 47.93 | 70.63 (48.00) | 66.91 (20.00) | **0.144** | 6.12 |
-| smaltdf: `smaltnb-shop.nb.ts` | 37.07 | **3.53** | 69.59 | 81.01 (53.00) | 64.12 (17.00) | **0.142** | 3.80 |
-| smaltdf: `generated/40k.ts` | 98.47 | **23.09** | 155 | 94.36 (67.00) | 74.78 (19.00) | **20.90** | 75.30 |
+| smaltts's reference and guide examples (14) | 50.13 (65.82) | **5.86 (9.55)** | 99.04 (116) | 116 (123) (86.00) | 71.99 (77.99) (24.00) | **0.335 (0.802)** | 16.77 (23.45) |
+| smaltdf: `smaltnb-regional.nb.ts` | 30.82 | **1.94** | 41.39 | 69.12 (45.00) | 63.21 (20.00) | **0.147** | 5.77 |
+| smaltdf: `smaltnb-shop.nb.ts` | 39.73 | **3.30** | 62.01 | 73.88 (51.00) | 65.04 (15.00) | **0.192** | 3.77 |
+| smaltdf: `generated/40k.ts` | 95.88 | **27.58** | 141 | 87.19 (63.00) | 64.27 (14.00) | **19.78** | 67.27 |
 
 ### Loading and size
 
-Loading: a fresh process, from first use to the first stripped line, median of runs. smaltnb evaluates `lib/typescript.js` with `new Function`, as here. smaltty: all of `dist/*.js`, unminified.
+Loading: a fresh process, from first use to the first stripped line, median of runs. smaltnb evaluates `lib/typescript.js` with `new Function`, as here. smaltty: each entry point, the modules it loads (its module graph in `dist/`, comments removed, not minified); gzipped is each module on its own, as a server sends them; for `smaltty/bind` and `smaltty/check` the first use is a line parsed and bound, a one-line check.
 
 | Tool | Load (ms) | Size | Gzipped |
 | --- | ---: | ---: | ---: |
-| sucrase (as `@smaltworks/smaltdb-sucrase` bundles it) | 36.14 | ~200 KB | ~48 KB |
-| TypeScript compiler (`lib/typescript.js`) | 185 | 8930 KB | 1611 KB |
-| smaltty (`dist/*.js`) | 13.66 | 277 KB | 55 KB |
+| sucrase (as `@smaltworks/smaltdb-sucrase` bundles it) | 38.88 | ~200 KB | ~48 KB |
+| TypeScript compiler (`lib/typescript.js`) | 180 | 8930 KB | 1611 KB |
+| `smaltty` (11 modules) | 11.14 | 242 KB | 44.3 KB |
+| `smaltty/strip` (7 modules) | 7.78 | 141 KB | 24.5 KB |
+| `smaltty/bind` (3 modules) | 10.21 | 28 KB | 5.9 KB |
+| `smaltty/check` (9 modules) | 12.83 | 230 KB | 41.4 KB |
 
 sucrase's bundled size is from smaltdb-sucrase's README (an esbuild bundle of sucrase and its dependencies); smaltty doesn't bundle sucrase to measure it.
 
@@ -137,26 +140,77 @@ fresh page, as an app would run them, on the workloads of the checking table abo
 import to the checker ready to check (tsrs: its module fetched and compiled), from a local server, so without network
 time. **Cold**, **first check:** the first check of each workload in the page (the smaltts row's slowest is the page's
 first check of all). **After an edit:** the median of checks with the user file edited; smaltty keeps a `checkCache()`,
-tsrs makes a fresh instance for each call (its API has no program kept between checks).
+tsrs makes a fresh instance for each call (its API has no program kept between checks). **Entry points** (the first
+table): each of smaltty's entry points in fresh pages, from the first import to its first use (a line stripped; for
+`smaltty/check` a one-line check), median of 15 pages; downloads are its module graph, each module gzipped on its own.
+`smaltty/bind` is left out: it parses nothing, and loads three modules, two of them `smaltty/strip`'s.
 
 Chromium 153.0.8010.12, @tsrs/wasm 0.24.0-ts7.1.0-beta.
 
+| Entry point | Modules | Downloads | Load and first use (ms) |
+| --- | ---: | ---: | ---: |
+| `smaltty` | 11 | 242 KB (44.3 KB gzipped) | 21.40 |
+| `smaltty/strip` | 7 | 141 KB (24.5 KB gzipped) | 16.30 |
+| `smaltty/check` | 9 | 230 KB (41.4 KB gzipped) | 22.50 |
+
 | | Downloads | Load (ms) |
 | --- | ---: | ---: |
-| smaltty (`dist/*.js`) | 277 KB (58 KB gzipped) | 27.00 |
-| tsrs (`@tsrs/wasm`: browser.js, core.js, tsrs.wasm) | 9764 KB (2852 KB gzipped) | 61.50 |
+| smaltty (`dist/*.js`) | 242 KB (44.5 KB gzipped) | 23.00 |
+| tsrs (`@tsrs/wasm`: browser.js, core.js, tsrs.wasm) | 9764 KB (2851.8 KB gzipped) | 229 |
 
 | Workload | smaltty cold | tsrs first check | smaltty after an edit | tsrs after an edit |
 | --- | ---: | ---: | ---: | ---: |
-| smaltts's examples (14) | **10.30 (90.80)** | 80.10 (420) | **0.800 (1.30)** | 81.00 (118) |
-| smaltdf: `smaltnb-regional.nb.ts` | **7.70** | 36.40 | **0.500** | 36.70 |
-| smaltdf: `smaltnb-shop.nb.ts` | **8.90** | 38.20 | **0.400** | 36.60 |
-| smaltdf: `generated/40k.ts` | **39.20** | 47.60 | **18.10** | 48.20 |
+| smaltts's examples (14) | **9.70 (64.90)** | 73.20 (313) | **0.800 (1.40)** | 70.30 (109) |
+| smaltdf: `smaltnb-regional.nb.ts` | **9.80** | 38.30 | **0.400** | 37.50 |
+| smaltdf: `smaltnb-shop.nb.ts` | **8.30** | 45.00 | **0.300** | 33.10 |
+| smaltdf: `generated/40k.ts` | **33.00** | 41.80 | **17.20** | 42.10 |
 
 Errors of the checked codes found (all workloads as written): smaltty 0, tsrs 3.
 
 The 3 errors tsrs finds are tsc's too (tsc 5.9 reports the same three, in two of smaltts's examples as the corpus holds
 them); smaltty reports none of them, as it may: it reports only what tsc does, not all of it.
+
+### What milestone 10 says
+
+- **The stripping path is 24.5 KB gzipped, under the 30 KB target.** Each module gzipped on its own, as a server sends
+  it:
+
+  | Entry point | Modules | 0.10.0 | Split | Split, comments removed |
+  | --- | ---: | ---: | ---: | ---: |
+  | `smaltty` | 10, then 11 | 58.2 KB | 58.7 KB | **44.3 KB** |
+  | `smaltty/strip` (scanner, parser, stripper) | 7 | (30.7 KB, not loadable alone) | 31.1 KB | **24.5 KB** |
+  | `smaltty/bind` (binder) | 3 | | 8.8 KB | **5.9 KB** |
+  | `smaltty/check` (checker, binder, parser) | 9 | | 54.2 KB | **41.4 KB** |
+
+  The split alone left the stripping path at 31.1 KB: the scanner, parser and stripper are 30.7 KB with comments, the
+  entry point 0.4 KB more. What pulled the weight in was the comments (about a fifth of every module): `dist/*.js` is
+  now built without them (`removeComments`), the `.d.ts` files keep theirs (a second `tsc` pass that emits only
+  declarations), and the source maps point at `src/`, which the package ships. Nothing else was worth taking out: the
+  node kinds' name table (`KIND_NAMES`) is built from the kinds object at load, and the scanner's tables are what it
+  runs on.
+- **Removing comments costs nothing in speed.** The same modules with and without comments, each in its own process,
+  alternated five times (medians, milliseconds): app code strip 0.120 and 0.121, parse 0.087 and 0.087; library code
+  strip 4.83 and 4.78, parse 3.71 and 3.33; edge cases strip 0.519 and 0.428; generated scripts strip 18.9 and 18.1,
+  parse 14.8 and 13.4. The full run above against the run before the change moves both ways by more than that, the
+  tools smaltty is compared with too (`transpileModule` 74 ms then 86 ms on the library code): that is this machine.
+- **Loading, by entry point:** in a fresh Node process `smaltty/strip` loads and strips its first line in 7.8 ms,
+  against 11.1 ms for all of smaltty; in a fresh page of Chromium (local server, so no network time) in 16.3 ms,
+  against 21.4 ms. `smaltty/check` loads and checks a line in 12.8 ms in Node and 22.5 ms in a page.
+- **Minifying would save another fifth over the network, and little time on loading.** Measured ad hoc (esbuild 0.25.10
+  and terser 5.44.0 run from a scratch folder with `npx`, each module minified on its own; neither is a dependency),
+  in fresh pages of Chromium as above:
+
+  | Build | `smaltty/strip` | `smaltty/check` | `smaltty` | strip: load and first use (ms) |
+  | --- | ---: | ---: | ---: | ---: |
+  | With comments (0.10.0's build) | 157 KB (31.1 KB gzipped) | 263 KB (54.2 KB) | 278 KB (58.7 KB) | 17.6 |
+  | Comments removed (this build) | 141 KB (24.5 KB) | 230 KB (41.4 KB) | 242 KB (44.3 KB) | 17.3 |
+  | esbuild `--minify` | 82 KB (20.2 KB) | 132 KB (34.0 KB) | 139 KB (36.4 KB) | 15.6 |
+  | terser `-c -m` | 82 KB (20.0 KB) | 133 KB (33.5 KB) | 139 KB (35.9 KB) | 14.9 |
+
+  Against this build, a minifier takes 4.3–4.5 KB off the stripping path gzipped (18%) and 1.7–2.4 ms off its load in
+  a page, where nothing is fetched over a network; on a slow connection (200 KB/s) 4.5 KB is about 22 ms. The target
+  is met without one, and a minifier is outside code (a dev dependency needs the owner's yes), so `dist/` is not
+  minified: the numbers are here for that decision.
 
 ### What milestone 9 says
 

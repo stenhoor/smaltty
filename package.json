@@ -14,6 +14,18 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./strip": {
+      "types": "./dist/entry-strip.d.ts",
+      "default": "./dist/entry-strip.js"
+    },
+    "./bind": {
+      "types": "./dist/entry-bind.d.ts",
+      "default": "./dist/entry-bind.js"
+    },
+    "./check": {
+      "types": "./dist/entry-check.d.ts",
+      "default": "./dist/entry-check.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -25,7 +37,7 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && tsc -p tsconfig.build.json --emitDeclarationOnly --removeComments false",
     "prepare": "npm run build",
     "typecheck": "node node_modules/typescript7/bin/tsc -p .",
     "test": "npm run build && node --test test/*.test.ts",

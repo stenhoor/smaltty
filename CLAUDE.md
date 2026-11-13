@@ -31,7 +31,10 @@ NODE_PATH=$(npm root -g) node scripts/downstream.mjs   # the downstream check: t
 - `src/`: `scanner.ts` (tokens on demand), `parser.ts` (TypeScript's grammar, TypeScript's tree shapes), `tree.ts` (the
   flat tree), `strip.ts` (types to spaces), `binder.ts` (which declaration each name means), `checker.ts` (types
   of calls into the libraries a file imports, and tsc's errors on them), `kinds.ts` and `tokens.ts`
-  (codes). `test/` imports the package by name, so
+  (codes). The entry points (milestone 10): `index.ts` (`smaltty`, everything), `entry-strip.ts` (`smaltty/strip`:
+  scanner, parser, stripper), `entry-bind.ts` (`smaltty/bind`) and `entry-check.ts` (`smaltty/check`: binder and
+  checker); `test/entries.test.ts` holds each to the modules it loads. `dist/*.js` is built without comments, its
+  `.d.ts` with them. `test/` imports the package by name, so
   it tests the built output.
 - `test/compare.ts` flattens both trees for comparison; `node test/sweep.ts <paths>` compares the parser with TypeScript
   on any code (run it on the smalt repositories after a parser change). `node test/strip-sweep.ts <paths>` does the same

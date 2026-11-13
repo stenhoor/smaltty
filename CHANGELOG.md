@@ -6,6 +6,28 @@ smaltworks 0.9.0. Each milestone from 9 on ends in a release, tagged only with t
 behaviour, and says how here; a patch release doesn't. Each entry marks what a consumer can see: an API, a default, an
 error code, a message.
 
+## 0.11.0 (unreleased)
+
+Milestone 10: entry points and size ([ADR 0029](docs/adr/0029-after-the-checker-trial.md), decision 3). Additive
+only: `smaltty` exports everything it did, with the same values, and the defaults, errors and messages are 0.10.0's.
+
+### Behaviour a consumer can see
+
+- New entry points, each loading only its own modules: `smaltty/strip` (the scanner, parser and stripper: `strip`,
+  `transpile`, `parse`, `Tree`, `K`, `F`, `KIND_NAMES`, `isTypeNode`, `ParseError`, `VERSION` and the default
+  Transpiler), `smaltty/bind` (the binder: `bind`, `Bindings`, `Meaning`), and `smaltty/check` (the checker:
+  `check`, `checkCache`, `expectations`, and the binder). A page that strips loads none of the binder's or the
+  checker's code. `smaltty` (`dist/index.js`) still exports everything; a value is the same object whichever entry
+  point it comes from.
+- `dist/*.js` is built without comments (the `.d.ts` files keep theirs, and the source maps point at `src/`, which the
+  package ships): the stripping path is 24.5 KB gzipped, from 31.1 KB with comments (all of `smaltty` 44.3 KB, from 58.2 KB).
+
+### Tooling
+
+- `npm run bench` measures loading and size per entry point; `npm run bench:page` loads each in a fresh page of
+  Chromium, and `node bench/page.ts --entries --dist=<dir>` compares another build of `dist/` (a minified one).
+- `test/entries.test.ts` holds each entry point to the modules it loads, recorded in a fresh process.
+
 ## 0.10.0 (2026-11-13)
 
 Milestone 9: TypeScript 7 as the reference ([ADR 0029](docs/adr/0029-after-the-checker-trial.md)). Tooling only: the
