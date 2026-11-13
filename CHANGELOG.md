@@ -7,6 +7,42 @@ smaltworks 0.9.0. Each milestone from 9 on ends in a release, tagged only with t
 behaviour, and says how here; a patch release doesn't. Each entry marks what a consumer can see: an API, a default, an
 error code, a message.
 
+## 0.12.0 (unreleased)
+
+Milestone 11: prepared declarations, the first check ([ADR 0029](docs/adr/0029-after-the-checker-trial.md), decision
+2). Additive only ([ADR 0030](docs/adr/0030-changing-smaltty-without-breaking-its-consumers.md), decision 3): `check()`
+takes text as before, with the same results, and the defaults, errors and messages are 0.11.0's.
+
+### Behaviour a consumer can see
+
+- `prepare(files)` (from `smaltty/check` and `smaltty`, not `smaltty/strip`): files parsed and bound once, written as
+  one buffer (a `Uint8Array`) with their text, for an app's build to write beside the `.d.ts` text it ships.
+- `check()`'s new option `prepared`: the buffer (an `ArrayBuffer` or a view of one), or the `PreparedFiles`
+  `readPrepared()` gives for it, read in place of parsing those files' text. Its files are files of the check, as
+  `files` are; a path also in `files` with other text is read from the text. A prepared check finds exactly the errors
+  a check of the text finds.
+- `readPrepared(buffer)` gives the `PreparedFiles` (`version`, `paths`, `text(path)`, `readAll()`), or `undefined` for
+  a buffer this smaltty can't read: another format (`PREPARED_FORMAT`), another smaltty version or node kinds, or a
+  length or checksum that doesn't match. `check()` ignores such a buffer and reads only `files`: a stale buffer is never
+  read, so pass the text too where one can arrive (a browser keeps files from an earlier deploy), or fetch it when
+  `readPrepared()` gives `undefined`.
+- The built-in types are prepared when smaltty is built and read once per process, so a first check doesn't parse
+  them, and a check without a cache no longer parses them each time. `smaltty/check` loads three more modules
+  (`prepared.js`, `builtins-prepared.js`, `version.js`), and is 10.5 KB more gzipped (45.4 KB to 55.9 KB), most of it
+  the built-in types' buffer.
+- `Tree`'s and `Bindings`' constructors take an optional last argument: columns and bindings already made (how a
+  prepared file is read back). Called as before, they are unchanged.
+
+### Tooling
+
+- `VERSION` is written in `src/version.ts` (re-exported by `smaltty/strip` and `smaltty` as before); the Release
+  workflow reads it there.
+- `npm run build` ends with `scripts/prepare-builtins.mjs`, which writes the built-in types' buffer into
+  `dist/builtins-prepared.js`.
+- `node bench/page.ts --first` measures a page's first check from the checker worker's start, with the libraries as
+  text and prepared (`--app=<label>=<types.json>=<code>` adds an app's own); `npm run bench`'s checking table has a
+  prepared first-check column.
+
 ## 0.11.0 (2026-11-13)
 
 Milestone 10: entry points and size ([ADR 0029](docs/adr/0029-after-the-checker-trial.md), decision 3). Additive

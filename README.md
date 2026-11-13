@@ -19,7 +19,9 @@ strip("const n: number = 2;\ntable('orders').head(n)");
 // "const n         = 2;\ntable('orders').head(n)"
 ```
 
-`smaltty/strip` loads only the scanner, parser and stripper; `smaltty/check` the checker, for the worker that checks;
+`smaltty/strip` loads only the scanner, parser and stripper; `smaltty/check` the checker, for the worker that checks
+(with `prepare()`, which an app's build uses to ship its libraries' declarations
+[prepared](https://stenhoor.github.io/smaltty/guide/prepared), so a first check parses only the code);
 `smaltty` everything ([entry points](https://stenhoor.github.io/smaltty/guide/getting-started#entry-points)). smaltty
 is not on npm yet: depend on a commit (`"smaltty": "github:stenhoor/smaltty#<commit>"`). The smalt apps use it
 through `smaltkit/typescript` and `smaltkit/typecheck`.

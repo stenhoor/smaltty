@@ -38,8 +38,16 @@ export class Bindings {
   /** Per node: its parent (0 for the root). */
   readonly parent: Int32Array;
 
-  constructor(tree: Tree) {
+  /** Empty bindings for `tree`, or, with `bound`, bindings already made (prepared declarations read back). */
+  constructor(tree: Tree, bound?: { readonly symbols: BindSymbol[]; readonly symbolOf: Int32Array; readonly meaningOf: Uint8Array; readonly parent: Int32Array }) {
     this.tree = tree;
+    if (bound) {
+      this.symbols = bound.symbols;
+      this.symbolOf = bound.symbolOf;
+      this.meaningOf = bound.meaningOf;
+      this.parent = bound.parent;
+      return;
+    }
     this.symbolOf = new Int32Array(tree.count);
     this.meaningOf = new Uint8Array(tree.count);
     this.parent = new Int32Array(tree.count);

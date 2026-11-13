@@ -4,13 +4,14 @@
 //   node bench/run.ts            full run (a few minutes)
 //   node bench/run.ts --quick    one iteration each
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { arch, cpus, platform } from 'node:os';
+import { arch, cpus, platform, tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import ts from 'typescript';
 import { transform } from 'sucrase';
-import { bind, check, checkCache, parse, strip } from 'smaltty';
+import { bind, check, checkCache, parse, prepare, strip } from 'smaltty';
 import { TSC7_VERSION, typescript7Checks } from '../test/checking.ts';
 import { tsrsChecks } from '../test/tsrs.ts';
 import { distUrl, entryPoints, moduleGraph, sizeOf } from './entries.ts';
@@ -218,20 +219,23 @@ line('### Checking');
 line();
 line("One user file checked with the library it calls, read from source (smaltts's 16 files, 184 KB; smaltdf's 9, 85 KB): " +
   "smaltty's `check()` against tsc (`strict`, `lib.es2022`) on the same files. **First check:** a fresh process, smaltty's modules " +
-  'loaded, the first `check()` (median of runs). **Cold:** in a warmed-up process, nothing kept from the previous check. ' +
+  'loaded, the first `check()` (median of runs); **prepared:** the same, with the library read from `prepare()`\'s buffer (milestone 11). **Cold:** in a warmed-up process, nothing kept from the previous check. ' +
   '**After an edit:** the user file changed, the rest kept (smaltty: `checkCache()`; tsc: files kept and its previous program ' +
   'reused, as an editor does). **tsrs:** tsrs (a Rust port of TypeScript 7\'s checker, `npm i tsrs`) on the same files, a fresh ' +
   'process each time, as it has no API that keeps a program between checks; in brackets its own total time (`--extendedDiagnostics`), ' +
   'without the process\'s start. **TypeScript 7:** its `tsc` command (the Go compiler) the same way, with `lib.es2022`. ' +
   'Milliseconds; the smaltts row is the median of its 14 examples, with the slowest in brackets.');
 line();
-line('| Workload | smaltty first check | smaltty cold | tsc cold | TypeScript 7: process (own time) | tsrs: process (own time) | smaltty after an edit | tsc after an edit |');
-line('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
+line('| Workload | smaltty first check | smaltty first check, prepared | smaltty cold | tsc cold | TypeScript 7: process (own time) | tsrs: process (own time) | smaltty after an edit | tsc after an edit |');
+line('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
 {
   const workloads = checkWorkloads();
   const rows: { label: string; v: number[] }[] = [];
   workloads.forEach((w, i) => {
     const first = fresh('', quick ? 1 : 5, [new URL('check-cold.ts', import.meta.url).pathname, String(i)]);
+    const preparedFile = join(mkdtempSync(join(tmpdir(), 'smaltty-prepared-')), 'libs.bin');
+    writeFileSync(preparedFile, prepare(new Map([...w.files].filter(([f]) => f !== w.root))));
+    const firstPrepared = fresh('', quick ? 1 : 5, [new URL('check-cold.ts', import.meta.url).pathname, String(i), preparedFile]);
     const opts = { roots: [w.root], packages: w.packages };
     const cold = time(() => check(w.files, opts), 600);
     const tscCold = time(() => tscWorkload(w, w.files.get(w.root)!), 1500, 3);
@@ -247,15 +251,15 @@ line('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
     const tsrsRuns = Array.from({ length: quick ? 1 : 5 }, () => tsrsChecks(w.files, { roots: [w.root], packages: w.packages, compilerOptions: { lib: ['es2022'] } })).sort((a, b) => a.ms - b.ms);
     const tsrsRun = tsrsRuns[tsrsRuns.length >> 1]!;
     const sevenRun = median(Array.from({ length: quick ? 1 : 5 }, () => typescript7Checks(w.files, { roots: [w.root], packages: w.packages, compilerOptions: { lib: ['es2022'] } })));
-    rows.push({ label: w.label, v: [first, cold, tscCold, sevenRun.ms, tsrsRun.ms, smEdit, tscEdit, sevenRun.totalMs, tsrsRun.totalMs] });
+    rows.push({ label: w.label, v: [first, cold, tscCold, sevenRun.ms, tsrsRun.ms, smEdit, tscEdit, sevenRun.totalMs, tsrsRun.totalMs, firstPrepared] });
   });
   const smaltts = rows.filter((r) => r.label.startsWith('smaltts '));
   const mid = (xs: number[]) => [...xs].sort((a, b) => a - b)[xs.length >> 1]!;
   const cell = (j: number) => `${fmt(mid(smaltts.map((r) => r.v[j]!)))} (${fmt(Math.max(...smaltts.map((r) => r.v[j]!)))})`;
-  line(`| smaltts's reference and guide examples (${smaltts.length}) | ${cell(0)} | **${cell(1)}** | ${cell(2)} | ${cell(3)} (${fmt(mid(smaltts.map((r) => r.v[7]!)))}) | ${cell(4)} (${fmt(mid(smaltts.map((r) => r.v[8]!)))}) | **${cell(5)}** | ${cell(6)} |`);
+  line(`| smaltts's reference and guide examples (${smaltts.length}) | ${cell(0)} | **${cell(9)}** | **${cell(1)}** | ${cell(2)} | ${cell(3)} (${fmt(mid(smaltts.map((r) => r.v[7]!)))}) | ${cell(4)} (${fmt(mid(smaltts.map((r) => r.v[8]!)))}) | **${cell(5)}** | ${cell(6)} |`);
   for (const r of rows.filter((r) => !r.label.startsWith('smaltts '))) {
-    const [first, cold, tscCold, seven, tsrs, smEdit, tscEdit, sevenOwn, tsrsOwn] = r.v.map(fmt);
-    line(`| ${r.label.replace(/^smaltdf (.*)$/, 'smaltdf: `$1`')} | ${first} | **${cold}** | ${tscCold} | ${seven} (${sevenOwn}) | ${tsrs} (${tsrsOwn}) | **${smEdit}** | ${tscEdit} |`);
+    const [first, cold, tscCold, seven, tsrs, smEdit, tscEdit, sevenOwn, tsrsOwn, firstPrepared] = r.v.map(fmt);
+    line(`| ${r.label.replace(/^smaltdf (.*)$/, 'smaltdf: `$1`')} | ${first} | **${firstPrepared}** | **${cold}** | ${tscCold} | ${seven} (${sevenOwn}) | ${tsrs} (${tsrsOwn}) | **${smEdit}** | ${tscEdit} |`);
   }
 }
 line();

@@ -20,6 +20,8 @@ import { bind, type Bindings } from './binder.js';
 import { parse } from './parser.js';
 import type { Tree } from './tree.js';
 import { BUILTINS, BUILTINS_PATH } from './builtins.js';
+import { BUILTINS_PREPARED } from './builtins-prepared.js';
+import { readPrepared, type PreparedFiles } from './prepared.js';
 
 export interface Diagnostic {
   readonly file: string;
@@ -48,6 +50,13 @@ export interface CheckOptions {
    * files whose text changed. An editor keeps one per page.
    */
   readonly cache?: CheckCache;
+  /**
+   * Prepared declarations (prepare()'s buffer, or the files readPrepared() gives for it), read in place of parsing
+   * those files' text: they are files of the check as `files` are, and the same path in `files` with other text is
+   * read from its text. A buffer this smaltty can't read (another format or version, or one cut short) is ignored:
+   * pass the files' text too where that can happen, or check with readPrepared() first.
+   */
+  readonly prepared?: PreparedFiles | ArrayBuffer | ArrayBufferView;
 }
 
 /** Parsed files kept between checks: a file's tree and names, by path, while its text is the same. */
@@ -202,6 +211,34 @@ interface Resolved {
 
 const keyOf = (d: Decl): string => `${d.file.path}:${d.node}`;
 
+// atob is in every page, worker and Node, and Uint8Array.fromBase64 in newer ones; the build's lib (es2023) declares
+// neither.
+declare const atob: (data: string) => string;
+const fromBase64 = (Uint8Array as unknown as { fromBase64?: (data: string) => Uint8Array }).fromBase64;
+
+/**
+ * The built-in types, read once: their text never changes. From the buffer the build prepared for them where there is
+ * one this smaltty reads (always, in a build), else parsed from their text.
+ */
+let builtinsInfo: SourceInfo | undefined;
+function builtins(): SourceInfo {
+  if (builtinsInfo) return builtinsInfo;
+  if (BUILTINS_PREPARED !== undefined) {
+    let bytes: Uint8Array;
+    if (fromBase64) bytes = fromBase64(BUILTINS_PREPARED);
+    else {
+      const chars = atob(BUILTINS_PREPARED);
+      bytes = new Uint8Array(chars.length);
+      for (let i = 0; i < chars.length; i++) bytes[i] = chars.charCodeAt(i);
+    }
+    const entry = readPrepared(bytes)?.entries.get(BUILTINS_PATH);
+    const info = entry !== undefined && entry.text() === BUILTINS ? entry.source() : null;
+    if (info) return (builtinsInfo = info);
+  }
+  const tree = parse(BUILTINS, { fileName: BUILTINS_PATH });
+  return (builtinsInfo = { path: BUILTINS_PATH, tree, bindings: bind(tree) });
+}
+
 class Checker {
   private readonly files: ReadonlyMap<string, string>;
   private readonly options: CheckOptions;
@@ -216,14 +253,35 @@ class Checker {
   /** Module augmentations (`declare module './x.js' { interface X { … } }`): target file to its interfaces. */
   private augmentations: Map<string, Decl[]> | undefined;
 
+  /** Prepared declarations, when given and readable. */
+  private readonly prepared: PreparedFiles | undefined;
+
   constructor(files: ReadonlyMap<string, string>, options: CheckOptions) {
     this.files = files;
     this.options = options;
+    this.prepared = options.prepared === undefined ? undefined : readPrepared(options.prepared);
+  }
+
+  /** A prepared file to read for `path`: one whose text, if `files` has the path too, is that text. */
+  private preparedEntry(path: string) {
+    const entry = this.prepared?.entries.get(path);
+    if (entry === undefined) return undefined;
+    const text = this.files.get(path);
+    return text === undefined || text === entry.text() ? entry : undefined;
   }
 
   private source(path: string): SourceInfo | undefined {
     if (!this.sources.has(path)) {
-      const text = path === BUILTINS_PATH ? BUILTINS : this.files.get(path);
+      if (path === BUILTINS_PATH) {
+        this.sources.set(path, builtins());
+        return this.sources.get(path) ?? undefined;
+      }
+      const entry = this.preparedEntry(path);
+      if (entry !== undefined) {
+        this.sources.set(path, entry.source());
+        return this.sources.get(path) ?? undefined;
+      }
+      const text = this.files.get(path);
       let info: SourceInfo | null = null;
       const cached = this.options.cache?.files.get(path);
       if (cached !== undefined && cached.text === text) info = cached.info;
@@ -1236,7 +1294,7 @@ class Checker {
     }
     const base = parts.join('/');
     for (const candidate of [base.replace(/\.js$/, '.ts'), base, `${base}.ts`, `${base}/index.ts`, base.replace(/\.js$/, '.d.ts')]) {
-      if (this.files.has(candidate)) return candidate;
+      if (this.files.has(candidate) || this.prepared?.has(candidate)) return candidate;
     }
     return undefined;
   }
@@ -1485,8 +1543,16 @@ class Checker {
   private augmentationsOf(path: string): readonly Decl[] {
     if (!this.augmentations) {
       this.augmentations = new Map();
-      for (const [file, text] of this.files) {
-        if (!this.mayAugment(file, text)) continue;
+      // Prepared files first, in the order they were prepared, then the others: as a page gives them, the libraries
+      // before the code.
+      const files: [string, boolean][] = [];
+      for (const path of this.prepared?.paths ?? []) {
+        const entry = this.preparedEntry(path);
+        if (entry !== undefined) files.push([path, entry.augments]);
+      }
+      for (const [path, text] of this.files) if (this.preparedEntry(path) === undefined) files.push([path, this.mayAugment(path, text)]);
+      for (const [file, augments] of files) {
+        if (!augments) continue;
         const f = this.source(file);
         if (!f) continue;
         const t = f.tree;

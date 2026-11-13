@@ -3,6 +3,19 @@
 // the count.
 import { KIND_NAMES } from './kinds.js';
 
+/** A built tree's columns, as Tree keeps them: `count` rows, row 0 "no node". */
+export interface TreeColumns {
+  readonly count: number;
+  readonly root: number;
+  readonly kind: Uint8Array;
+  readonly start: Int32Array;
+  readonly end: Int32Array;
+  readonly first: Int32Array;
+  readonly next: Int32Array;
+  readonly flags: Int32Array;
+  readonly data: Int16Array;
+}
+
 export class Tree {
   readonly text: string;
   readonly fileName: string | undefined;
@@ -19,9 +32,25 @@ export class Tree {
   /** Per-kind data: the operator token of a unary, binary or type operator expression. */
   data: Int16Array;
 
-  constructor(text: string, fileName?: string) {
+  /**
+   * An empty tree for `text`, or, with `columns`, a tree already built (prepared declarations read back: the columns
+   * are views of the buffer, and nothing is added to them).
+   */
+  constructor(text: string, fileName?: string, columns?: TreeColumns) {
     this.text = text;
     this.fileName = fileName;
+    if (columns) {
+      this.count = columns.count;
+      this.root = columns.root;
+      this.kind = columns.kind;
+      this.start = columns.start;
+      this.end = columns.end;
+      this.first = columns.first;
+      this.next = columns.next;
+      this.flags = columns.flags;
+      this.data = columns.data;
+      return;
+    }
     // About one node per 4 characters of source.
     const size = (text.length >> 2) + 32;
     this.start = this.end = this.first = this.next = this.flags = new Int32Array(0);
