@@ -23,40 +23,40 @@ export function parse(text: string, options: ParseOptions = {}): Tree {
 /**
  * @internal The tree, and the TypeScript-only syntax the parser met (see Parser.erase), for the stripper.
  */
-export function parseWithErasures(text: string, fileName?: string, seen?: (p: { readonly after: number }) => void): { tree: Tree; erase: number[] } {
+export function parseWithErasures(text: string, fileName?: string): { tree: Tree; erase: number[] } {
   const declarationFile = !!fileName?.endsWith('.d.ts');
   const first = new Parser(text, fileName, 0);
-  seen?.(first);
   // A file that starts with an import or export is a module: `await` at its top level is an operator from the start,
   // and the second parse below is not needed. Notebooks start this way.
-  if (!declarationFile && first.startsAsModule()) return parser(text, fileName, seen).run();
+  if (!declarationFile && first.startsAsModule()) return new Parser(text, fileName, C_AWAIT).run();
   const result = first.run();
   // In a module, `await` at the top level is an operator. Whether the file is a module is known only once it is
   // parsed, so a module that used `await` outside a function is parsed again with that set, as TypeScript does.
   if (first.possibleTopLevelAwait && !declarationFile && (first.sawImportMeta || isModule(result.tree))) {
-    return parser(text, fileName, seen).run();
+    return new Parser(text, fileName, C_AWAIT).run();
   }
   return result;
-}
-
-function parser(text: string, fileName: string | undefined, seen: ((p: { readonly after: number }) => void) | undefined): Parser {
-  const p = new Parser(text, fileName, C_AWAIT);
-  seen?.(p);
-  return p;
 }
 
 /**
  * @internal For the checker's tolerant parse (milestone 13): the tree, as parse() gives it, or the syntax error and
  * where the last top-level statement before it ends (where the statement the error is in, or the comments before it,
- * starts).
+ * starts). The same parses as parseWithErasures, by Parser.probe, so parse() itself is untouched.
  */
 export function parseOrStop(text: string, fileName?: string): Tree | { readonly error: ParseError; readonly after: number } {
-  let last: { readonly after: number } | undefined;
   try {
-    return parseWithErasures(text, fileName, (p) => (last = p)).tree;
+    const declarationFile = !!fileName?.endsWith('.d.ts');
+    const first = new Parser(text, fileName, 0);
+    if (!declarationFile && first.startsAsModule()) return new Parser(text, fileName, C_AWAIT).probe();
+    const result = first.probe();
+    if ('error' in result) return result;
+    if (first.possibleTopLevelAwait && !declarationFile && (first.sawImportMeta || isModule(result))) {
+      return new Parser(text, fileName, C_AWAIT).probe();
+    }
+    return result;
   } catch (e) {
-    if (!(e instanceof ParseError) || last === undefined) throw e;
-    return { error: e, after: last.after };
+    if (e instanceof ParseError) return { error: e, after: 0 };
+    throw e;
   }
 }
 
@@ -189,8 +189,6 @@ class Parser {
   /** `await` was met outside an async function: a module must be parsed again (see parse). */
   possibleTopLevelAwait = false;
   sawImportMeta = false;
-  /** Where the last top-level statement parsed ends (see parseOrStop). */
-  after = 0;
 
   constructor(text: string, fileName: string | undefined, ctx: number) {
     this.s = new Scanner(text, fileName);
@@ -417,13 +415,29 @@ class Parser {
   parseSourceFile(): Tree {
     this.next();
     const m = this.st.length;
-    while (this.tok !== T.EOF) {
-      this.push(this.statement());
-      this.after = this.prevEnd;
-    }
+    while (this.tok !== T.EOF) this.push(this.statement());
     this.prevEnd = this.s.text.length;
     this.t.root = this.fin(K.SourceFile, 0, 0, m);
     return this.t;
+  }
+
+  /** parseSourceFile, keeping where the last top-level statement ends, for parseOrStop. */
+  probe(): Tree | { readonly error: ParseError; readonly after: number } {
+    let after = 0;
+    try {
+      this.next();
+      const m = this.st.length;
+      while (this.tok !== T.EOF) {
+        this.push(this.statement());
+        after = this.prevEnd;
+      }
+      this.prevEnd = this.s.text.length;
+      this.t.root = this.fin(K.SourceFile, 0, 0, m);
+      return this.t;
+    } catch (e) {
+      if (e instanceof ParseError) return { error: e, after };
+      throw e;
+    }
   }
 
   statement(): number {

@@ -347,16 +347,20 @@ class Checker {
         if (tolerant && cached.syntax !== undefined) this.syntax.set(path, cached.syntax);
       } else if (text !== undefined) {
         let syntax: readonly SyntaxProblem[] | undefined;
-        try {
-          const tree = parse(text, { fileName: path });
-          info = { path, tree, bindings: bind(tree) };
-        } catch (e) {
-          info = null; // a file that doesn't parse declares nothing the checker can use
-          if (tolerant) {
-            const read = parseTolerant(text, path);
-            info = { path, tree: read.tree, bindings: bind(read.tree) };
+        if (tolerant) {
+          // The tolerant parse starts with the strict one, and gives its tree where the text parses.
+          const read = parseTolerant(text, path);
+          info = { path, tree: read.tree, bindings: bind(read.tree) };
+          if (read.errors.length || read.tree.text !== text) {
             syntax = read.errors;
             this.syntax.set(path, syntax);
+          }
+        } else {
+          try {
+            const tree = parse(text, { fileName: path });
+            info = { path, tree, bindings: bind(tree) };
+          } catch {
+            info = null; // a file that doesn't parse declares nothing the checker can use
           }
         }
         this.options.cache?.files.set(path, syntax === undefined ? { text, info } : { text, info, syntax });

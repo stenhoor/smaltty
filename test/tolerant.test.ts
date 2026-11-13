@@ -181,6 +181,8 @@ for (const w of workloads()) {
     const tolerant = check(new Map([...w.libs, ...[...broken].map(([f, b]) => [f, b.text] as [string, string])]), { ...w.options, ...TOLERANT, roots });
     const withoutFiles = new Map([...w.libs, ...[...broken].map(([f, b]) => [f, b.without] as [string, string])]);
     const cold = check(withoutFiles, { ...w.options, roots });
+    // A file that parses is read the same either way.
+    assert.deepEqual(check(withoutFiles, { ...w.options, ...TOLERANT, roots }), cold);
     // With the option off, as before: a root with a syntax error has no errors.
     assert.deepEqual(check(new Map([...w.libs, ...[...broken].map(([f, b]) => [f, b.text] as [string, string])]), { ...w.options, roots }), []);
     const byFile = (ds: readonly Diagnostic[]) => {
