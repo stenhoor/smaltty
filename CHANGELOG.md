@@ -7,6 +7,34 @@ smaltworks 0.9.0. Each milestone from 9 on ends in a release, tagged only with t
 behaviour, and says how here; a patch release doesn't. Each entry marks what a consumer can see: an API, a default, an
 error code, a message.
 
+## 0.14.0 (unreleased)
+
+Milestone 13: checking through syntax errors ([ADR 0029](docs/adr/0029-after-the-checker-trial.md), decision 4). An
+option, off by default ([ADR 0030](docs/adr/0030-changing-smaltty-without-breaking-its-consumers.md), decision 3): with
+it off, the errors, their order, the defaults and the messages are 0.13.0's.
+
+### Behaviour a consumer can see
+
+- `check()`'s `syntax: 'tolerant'` (new option; `CheckOptions.syntax`, `'strict' | 'tolerant'`, default `'strict'`):
+  the top-level statement a syntax error is in is set aside (blanked, keeping its line breaks), the error is reported,
+  and the file's other statements are checked as usual; what the statement declared is unknown, so nothing that uses
+  it is an error. Each statement set aside is one diagnostic, before the root's other errors, with the parser's message
+  and TypeScript's code for the same error where it has one (1005, 1109, 1110, 1003, 1128, 1002, 1160, 1161, 1010,
+  1127, 1351), else 1000 (a code TypeScript doesn't use); `@ts-expect-error`, `@ts-ignore` and `@ts-nocheck` don't
+  silence them. A library file with a syntax error declares what its other statements do. See the guide's
+  [Syntax errors](docs/guide/syntax-errors.md).
+- Unchanged: `parse()`, `strip()` and `transpile()` still throw `ParseError` at the first error, with the same trees;
+  with `syntax` left out, a root with a syntax error reports nothing and a file with one declares nothing, as before.
+- `CheckCache.files` entries may carry `syntax` (the errors of a file the tolerant parse read); a strict check with the
+  same cache reads such a file as one that doesn't parse. A root's per-statement results depend on the option.
+- `smaltty/check` loads one module more, `tolerant.js`.
+
+### Tooling
+
+- `test/tolerant.test.ts`: every checker mutant with a syntax error added to one statement, eight kinds, held to a
+  check of the file without the statement and to TypeScript 7's errors there.
+- `npm run bench`: a "Checking through a syntax error" table (`breakInside` in `bench/corpus.ts`).
+
 ## 0.13.0 (2026-11-13)
 
 Milestone 12: incremental re-checks ([ADR 0029](docs/adr/0029-after-the-checker-trial.md), decision 2). The errors,

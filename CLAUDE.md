@@ -10,7 +10,8 @@ Milestones 1–9 are done (through the checker, checking in the apps, and TypeSc
 docs/adr/0029-after-the-checker-trial.md, with how they reach consumers in
 docs/adr/0030-changing-smaltty-without-breaking-its-consumers.md; milestone 10 (entry points and size) is released as
 0.11.0 and milestone 11 (prepared declarations) as 0.12.0; milestone 12 (incremental re-checks) as
-0.13.0; milestone 13 (checking through syntax errors) is next. See
+0.13.0; milestone 13 (checking through syntax errors, `check()`'s `syntax: 'tolerant'`) is built for 0.14.0, and
+milestone 14 (coverage) is next. See
 docs/MILESTONES.md.
 Several Claude Code sessions work on the smalt repos in parallel and cannot see each other: this file is the shared
 starting point, and its working rules match smaltdb's `CLAUDE.md`.
@@ -39,7 +40,8 @@ NODE_PATH=$(npm root -g) node scripts/downstream.mjs   # the downstream check: t
   writes files parsed and bound as one buffer, `readPrepared()` reads one back or refuses another smaltty's; `check()`
   takes it as `prepared`), `builtins.ts` (the built-in types) and `builtins-prepared.ts` (them prepared: empty in
   `src/`, written into `dist/` by `scripts/prepare-builtins.mjs`, the build's last step), `version.ts` (`VERSION`),
-  `kinds.ts` and `tokens.ts` (codes). The entry points (milestone 10): `index.ts` (`smaltty`, everything), `entry-strip.ts` (`smaltty/strip`:
+  `tolerant.ts` (milestone 13: the checker's tolerant parse, a statement with a syntax error blanked, held by
+  `test/tolerant.test.ts`), `kinds.ts` and `tokens.ts` (codes). The entry points (milestone 10): `index.ts` (`smaltty`, everything), `entry-strip.ts` (`smaltty/strip`:
   scanner, parser, stripper), `entry-bind.ts` (`smaltty/bind`) and `entry-check.ts` (`smaltty/check`: binder and
   checker); `test/entries.test.ts` holds each to the modules it loads. `dist/*.js` is built without comments, its
   `.d.ts` with them. `test/` imports the package by name, so

@@ -160,3 +160,11 @@ export function editInside(text: string, n: number): string {
   const at = t.end[s]! - 1;
   return `${text.slice(0, at)} /* edit ${n} */${text.slice(at)}`;
 }
+
+/**
+ * `text` with a syntax error inside its middle top-level statement, the `n`th of a series: a parenthesis opened and
+ * not closed before its closing `;` or `}`, as when someone is typing a call there (milestone 13).
+ */
+export function breakInside(text: string, n: number): string {
+  return editInside(text, n).replace(/ \/\* edit (\d+) \*\//, ' /* edit $1 */ (');
+}

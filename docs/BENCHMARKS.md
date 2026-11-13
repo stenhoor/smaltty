@@ -28,7 +28,7 @@ Times are medians after warm-up, in milliseconds. What is measured, and why:
   processes: neither has an API that keeps a program between checks.
 - **Loading:** from a fresh process to the first stripped line. smaltnb pays the compiler's load when its kernel starts.
 
-## Latest run: milestone 12, 2026-11-13
+## Latest run: milestone 13, 2026-11-13
 
 Node v22.23.4, linux x64, Intel(R) Xeon(R) Processor @ 2.10GHz (4 threads). sucrase 3.35.1, typescript 6.0.3, TypeScript 7 7.0.2, tsrs 0.24.0-ts7.1.0-beta.
 
@@ -38,20 +38,20 @@ Median milliseconds to process the whole group once, on the files every tool acc
 
 | Corpus | Files | Size (KB) | sucrase strip | `transpileModule` | smaltty strip | TypeScript parse | smaltty parse | Parse + resolve names (smaltnb) | smaltty parse + bind |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| App code (smaltui tabs, smaltnb notebooks) | 4 | 2.9 | 0.141 | 4.59 | **0.091** | 0.255 | **0.080** | 3.83 | **0.105** |
-| Library code (smaltdf, smaltnb, smaltkit, smaltui) | 13 | 125 | 12.24 | 97.27 | **5.01** | 16.53 | **3.94** | 113 | **6.44** |
-| Syntax edge cases | 6 | 7.8 | 0.870 | 14.47 | **0.484** | 1.44 | **0.359** | 9.94 | **0.602** |
-| Generated script, 40 KB | 1 | 39 | 3.37 | 26.43 | **1.84** | 6.74 | **1.38** | 46.43 | **2.53** |
-| Generated script, 400 KB | 1 | 391 | 70.64 | 285 | **19.04** | 70.53 | **15.64** | 689 | **23.12** |
+| App code (smaltui tabs, smaltnb notebooks) | 4 | 2.9 | 0.137 | 4.82 | **0.089** | 0.214 | **0.070** | 3.58 | **0.107** |
+| Library code (smaltdf, smaltnb, smaltkit, smaltui) | 13 | 125 | 10.90 | 86.72 | **4.95** | 16.04 | **3.92** | 114 | **6.34** |
+| Syntax edge cases | 6 | 7.8 | 0.881 | 14.61 | **0.501** | 1.44 | **0.348** | 9.57 | **0.565** |
+| Generated script, 40 KB | 1 | 39 | 2.96 | 25.51 | **1.79** | 5.41 | **1.35** | 39.39 | **2.10** |
+| Generated script, 400 KB | 1 | 391 | 68.83 | 247 | **18.93** | 66.42 | **14.74** | 697 | **22.86** |
 
 ### App code, per file
 
 | File | Size (bytes) | sucrase strip | `transpileModule` | smaltty strip | smaltty parse | Parse + resolve names | smaltty parse + bind |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `apps/smaltnb-regional.nb.ts` | 1147 | 0.058 | 1.49 | **0.046** | **0.038** | 1.37 | **0.051** |
-| `apps/smaltnb-shop.nb.ts` | 945 | 0.035 | 1.16 | **0.027** | **0.022** | 0.857 | **0.029** |
-| `apps/smaltui-demo-frames.ts` | 719 | 0.030 | 0.867 | **0.016** | **0.018** | 0.687 | **0.022** |
-| `apps/smaltui-starter.ts` | 190 | 0.004 | 0.532 | **0.004** | **0.004** | 0.124 | **0.004** |
+| `apps/smaltnb-regional.nb.ts` | 1147 | 0.060 | 2.00 | **0.046** | **0.035** | 1.39 | **0.050** |
+| `apps/smaltnb-shop.nb.ts` | 945 | 0.034 | 1.16 | **0.024** | **0.021** | 0.793 | **0.029** |
+| `apps/smaltui-demo-frames.ts` | 719 | 0.027 | 0.793 | **0.017** | **0.015** | 0.504 | **0.020** |
+| `apps/smaltui-starter.ts` | 190 | 0.005 | 0.498 | **0.004** | **0.004** | 0.106 | **0.004** |
 
 ### Full type check (reference for phase 1)
 
@@ -59,11 +59,11 @@ Median milliseconds to process the whole group once, on the files every tool acc
 
 | File | tsc cold | tsc warm | TypeScript 7: process (own time) |
 | --- | ---: | ---: | ---: |
-| `apps/smaltnb-regional.nb.ts` | 45.51 | 4.65 | 39.93 (20.00) |
-| `apps/smaltnb-shop.nb.ts` | 38.55 | 1.99 | 39.31 (19.00) |
-| `apps/smaltui-demo-frames.ts` | 37.72 | 1.70 | 41.63 (19.00) |
-| `apps/smaltui-starter.ts` | 37.87 | 1.21 | 39.13 (18.00) |
-| `generated/40k.ts` | 103 | 77.83 | 56.46 (35.00) |
+| `apps/smaltnb-regional.nb.ts` | 47.84 | 5.35 | 37.65 (21.00) |
+| `apps/smaltnb-shop.nb.ts` | 39.33 | 2.01 | 37.05 (19.00) |
+| `apps/smaltui-demo-frames.ts` | 40.05 | 1.64 | 35.04 (19.00) |
+| `apps/smaltui-starter.ts` | 36.80 | 1.18 | 32.94 (18.00) |
+| `generated/40k.ts` | 103 | 58.68 | 55.61 (36.00) |
 
 ### Checking
 
@@ -71,10 +71,21 @@ One user file checked with the library it calls, read from source (smaltts's 16 
 
 | Workload | smaltty first check | smaltty first check, prepared | smaltty cold | tsc cold | TypeScript 7: process (own time) | tsrs: process (own time) | smaltty after an edit | smaltty after an edit, whole file | tsc after an edit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| smaltts's reference and guide examples (14) | 54.63 (78.37) | **23.79 (26.00)** | **5.97 (9.86)** | 110 (123) | 128 (141) (97.00) | 81.02 (92.29) (30.00) | **0.185 (0.667)** | 0.363 (0.732) | 18.83 (25.23) |
-| smaltdf: `smaltnb-regional.nb.ts` | 30.77 | **17.01** | **1.52** | 43.67 | 75.80 (52.00) | 78.19 (26.00) | **0.064** | 0.136 | 5.96 |
-| smaltdf: `smaltnb-shop.nb.ts` | 42.65 | **17.23** | **3.16** | 77.60 | 83.81 (58.00) | 75.89 (21.00) | **0.042** | 0.179 | 3.82 |
-| smaltdf: `generated/40k.ts` | 111 | **81.31** | **26.41** | 139 | 97.94 (71.00) | 72.85 (23.00) | **2.52** | 22.02 | 73.61 |
+| smaltts's reference and guide examples (14) | 54.07 (79.13) | **21.57 (26.35)** | **5.42 (9.24)** | 105 (132) | 123 (131) (94.00) | 76.13 (84.36) (28.00) | **0.179 (0.617)** | 0.354 (0.696) | 21.05 (25.82) |
+| smaltdf: `smaltnb-regional.nb.ts` | 29.92 | **15.82** | **1.46** | 44.06 | 74.52 (51.00) | 62.65 (18.00) | **0.063** | 0.147 | 5.89 |
+| smaltdf: `smaltnb-shop.nb.ts` | 35.79 | **17.66** | **2.79** | 66.87 | 76.23 (55.00) | 66.92 (19.00) | **0.039** | 0.185 | 3.75 |
+| smaltdf: `generated/40k.ts` | 102 | **84.19** | **23.88** | 141 | 85.64 (62.00) | 65.50 (16.00) | **2.44** | 20.01 | 73.18 |
+
+### Checking through a syntax error
+
+The same workloads, with `check()`'s `syntax: 'tolerant'` (milestone 13), in a warmed-up process. **Clean:** the user file as written, cold. **One syntax error:** a parenthesis left open inside its middle statement, cold: the strict parse stops, the tolerant parse sets the statement aside and parses the rest again, and the rest is checked. **After an edit that makes one:** with `checkCache()`, each check a different syntax error in that statement, the other statements' results kept. Milliseconds; the smaltts row is the median of its examples, with the slowest in brackets.
+
+| Workload | clean | one syntax error | after an edit that makes one |
+| --- | ---: | ---: | ---: |
+| smaltts's reference and guide examples (14) | 5.23 (9.25) | **5.38 (8.58)** | **0.063 (0.106)** |
+| smaltdf: `smaltnb-regional.nb.ts` | 1.47 | **1.58** | **0.098** |
+| smaltdf: `smaltnb-shop.nb.ts` | 3.05 | **2.77** | **0.070** |
+| smaltdf: `generated/40k.ts` | 24.99 | **24.63** | **3.54** |
 
 ### Loading and size
 
@@ -82,12 +93,12 @@ Loading: a fresh process, from first use to the first stripped line, median of r
 
 | Tool | Load (ms) | Size | Gzipped |
 | --- | ---: | ---: | ---: |
-| sucrase (as `@smaltworks/smaltdb-sucrase` bundles it) | 42.40 | ~200 KB | ~48 KB |
-| TypeScript compiler (`lib/typescript.js`) | 218 | 8930 KB | 1611 KB |
-| `smaltty` (14 modules) | 18.39 | 341 KB | 62.4 KB |
-| `smaltty/strip` (8 modules) | 14.21 | 141 KB | 24.7 KB |
-| `smaltty/bind` (3 modules) | 12.24 | 29 KB | 5.9 KB |
-| `smaltty/check` (12 modules) | 15.68 | 329 KB | 59.5 KB |
+| sucrase (as `@smaltworks/smaltdb-sucrase` bundles it) | 39.15 | ~200 KB | ~48 KB |
+| TypeScript compiler (`lib/typescript.js`) | 185 | 8930 KB | 1611 KB |
+| `smaltty` (15 modules) | 17.06 | 349 KB | 64.5 KB |
+| `smaltty/strip` (8 modules) | 9.92 | 143 KB | 24.8 KB |
+| `smaltty/bind` (3 modules) | 11.50 | 29 KB | 5.9 KB |
+| `smaltty/check` (13 modules) | 16.42 | 337 KB | 61.6 KB |
 
 sucrase's bundled size is from smaltdb-sucrase's README (an esbuild bundle of sucrase and its dependencies); smaltty doesn't bundle sucrase to measure it.
 
@@ -172,6 +183,21 @@ Errors of the checked codes found (all workloads as written): smaltty 0, tsrs 3.
 
 The 3 errors tsrs finds are tsc's too (tsc 5.9 reports the same three, in two of smaltts's examples as the corpus holds
 them); smaltty reports none of them, as it may: it reports only what tsc does, not all of it.
+
+### What milestone 13 says
+
+- **A syntax error costs a parse or two.** With `check()`'s `syntax: 'tolerant'`, a file with a parenthesis left open
+  in its middle statement is checked cold in about the time of the clean file (the 40 KB generated script 24.63 ms
+  against 24.99; app code 1.58 and 2.77 ms against 1.47 and 3.05; smaltts's examples 5.38 against 5.23, medians): the
+  strict parse stops, the statement is blanked and the file parsed again, and the statement set aside isn't checked.
+  With `checkCache()`, a check after an edit that makes a syntax error takes **3.54 ms** on the 40 KB script (2.44 ms
+  for an edit that parses: the parse that stops and the one after it, at 1.4 ms each) and 0.06–0.10 ms on app code.
+- **No slowdown of the scanner, parser, stripper or binder.** `parse()` runs the same code as before: the tolerant
+  path is a function and a method of its own (`parseOrStop`, `Parser.probe`) that `parse()` doesn't call. On the corpus
+  (libraries and apps), three sets of eight alternated runs against 0.13.0's build (medians, ms): parse 5.64, 5.67 and
+  5.62 against 5.69, 5.65 and 5.63; strip 6.70, 6.62 and 6.57 against 6.57, 6.63 and 6.50; parse and bind 8.56, 8.46
+  and 8.63 against 8.55, 8.36 and 8.58 (within run-to-run noise). The stripping path grows by 1 KB (143 KB, 24.8 KB
+  gzipped, unchanged); `smaltty/check` loads one module more, `tolerant.js` (61.6 KB gzipped).
 
 ### What milestone 12 says
 

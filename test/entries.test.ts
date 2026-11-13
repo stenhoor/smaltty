@@ -32,12 +32,12 @@ test('smaltty/bind loads the binder and the node kinds only', () => {
   assert.deepEqual(loaded('smaltty/bind'), ['binder.js', 'entry-bind.js', 'kinds.js']);
 });
 
-test('smaltty/check loads the checker, binder, built-in types (and their prepared buffer), prepared declarations and parser, and not the stripper', () => {
-  assert.deepEqual(loaded('smaltty/check'), ['binder.js', 'builtins-prepared.js', 'builtins.js', 'checker.js', 'entry-check.js', 'kinds.js', 'parser.js', 'prepared.js', 'scanner.js', 'tokens.js', 'tree.js', 'version.js']);
+test('smaltty/check loads the checker, binder, built-in types (and their prepared buffer), prepared declarations, the parser and its tolerant use, and not the stripper', () => {
+  assert.deepEqual(loaded('smaltty/check'), ['binder.js', 'builtins-prepared.js', 'builtins.js', 'checker.js', 'entry-check.js', 'kinds.js', 'parser.js', 'prepared.js', 'scanner.js', 'tokens.js', 'tolerant.js', 'tree.js', 'version.js']);
 });
 
 test('smaltty still loads and exports everything', () => {
-  assert.deepEqual(loaded('smaltty'), ['binder.js', 'builtins-prepared.js', 'builtins.js', 'checker.js', 'entry-strip.js', 'index.js', 'kinds.js', 'parser.js', 'prepared.js', 'scanner.js', 'strip.js', 'tokens.js', 'tree.js', 'version.js']);
+  assert.deepEqual(loaded('smaltty'), ['binder.js', 'builtins-prepared.js', 'builtins.js', 'checker.js', 'entry-strip.js', 'index.js', 'kinds.js', 'parser.js', 'prepared.js', 'scanner.js', 'strip.js', 'tokens.js', 'tolerant.js', 'tree.js', 'version.js']);
   const names = Object.keys(all).sort();
   assert.deepEqual(names, ['Bindings', 'F', 'K', 'KIND_NAMES', 'Meaning', 'PREPARED_FORMAT', 'ParseError', 'PreparedFiles', 'Tree', 'VERSION', 'bind', 'check', 'checkCache', 'default', 'expectations', 'isTypeNode', 'parse', 'prepare', 'readPrepared', 'strip', 'transpile']);
   // Every value an entry point exports is smaltty's own, the same object: a tree from one is a tree to the other.

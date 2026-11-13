@@ -22,6 +22,7 @@ import type { Tree } from './tree.js';
 import { BUILTINS, BUILTINS_PATH } from './builtins.js';
 import { BUILTINS_PREPARED } from './builtins-prepared.js';
 import { readPrepared, type PreparedFiles } from './prepared.js';
+import { parseTolerant, type SyntaxProblem } from './tolerant.js';
 
 export interface Diagnostic {
   readonly file: string;
@@ -57,11 +58,19 @@ export interface CheckOptions {
    * pass the files' text too where that can happen, or check with readPrepared() first.
    */
   readonly prepared?: PreparedFiles | ArrayBuffer | ArrayBufferView;
+  /**
+   * How a file with a syntax error is checked (milestone 13). `'strict'` (the default, as before 0.14.0): a root that
+   * doesn't parse has no errors reported, and a file that doesn't parse declares nothing. `'tolerant'`: the top-level
+   * statement a syntax error is in is set aside, the error is reported (TypeScript's code for it where there is one,
+   * else 1000), and the file's other statements are checked as usual; what the statement declared is unknown, so
+   * nothing that uses it is an error. Only for checking: `parse()` and the stripper still stop at the first error.
+   */
+  readonly syntax?: 'strict' | 'tolerant';
 }
 
 /** Parsed files kept between checks: a file's tree and names, by path, while its text is the same. */
 export interface CheckCache {
-  readonly files: Map<string, { readonly text: string; readonly info: SourceInfo | null }>;
+  readonly files: Map<string, { readonly text: string; readonly info: SourceInfo | null; readonly syntax?: readonly SyntaxProblem[] }>;
   /** Whether a file's text has a module augmentation, by path, while its text is the same. */
   readonly augments: Map<string, { readonly text: string; readonly has: boolean }>;
   /**
@@ -119,7 +128,7 @@ export function check(files: ReadonlyMap<string, string>, options: CheckOptions 
   if (store === undefined) {
     const c = new Checker(files, options);
     const out: Diagnostic[] = [];
-    for (const path of roots) out.push(...c.checkFile(path));
+    for (const path of roots) out.push(...c.syntaxErrors(path), ...c.checkFile(path));
     return out;
   }
   // Statements whose results are kept are taken from the last check; the rest are checked. Where that can't be shown
@@ -287,6 +296,8 @@ class Checker {
 
   /** Prepared declarations, when given and readable. */
   private readonly prepared: PreparedFiles | undefined;
+  /** The syntax errors of the files the tolerant parse read, by path. */
+  private readonly syntax = new Map<string, readonly SyntaxProblem[]>();
 
   /**
    * Times a guard cut a result short: a cycle (`typing`, a class among its own bases) or the depth limit. A result
@@ -327,20 +338,43 @@ class Checker {
       }
       const text = this.files.get(path);
       let info: SourceInfo | null = null;
+      const tolerant = this.options.syntax === 'tolerant';
       const cached = this.options.cache?.files.get(path);
-      if (cached !== undefined && cached.text === text) info = cached.info;
-      else if (text !== undefined) {
-        try {
-          const tree = parse(text, { fileName: path });
-          info = { path, tree, bindings: bind(tree) };
-        } catch {
-          info = null; // a file that doesn't parse declares nothing the checker can use
+      // A file the tolerant parse read with a syntax error is, to a strict check, one that doesn't parse; one the
+      // strict parse couldn't read is parsed again by a tolerant check.
+      if (cached !== undefined && cached.text === text && (cached.info !== null || !tolerant)) {
+        info = cached.syntax === undefined || tolerant ? cached.info : null;
+        if (tolerant && cached.syntax !== undefined) this.syntax.set(path, cached.syntax);
+      } else if (text !== undefined) {
+        let syntax: readonly SyntaxProblem[] | undefined;
+        if (tolerant) {
+          // The tolerant parse starts with the strict one, and gives its tree where the text parses.
+          const read = parseTolerant(text, path);
+          info = { path, tree: read.tree, bindings: bind(read.tree) };
+          if (read.errors.length || read.tree.text !== text) {
+            syntax = read.errors;
+            this.syntax.set(path, syntax);
+          }
+        } else {
+          try {
+            const tree = parse(text, { fileName: path });
+            info = { path, tree, bindings: bind(tree) };
+          } catch {
+            info = null; // a file that doesn't parse declares nothing the checker can use
+          }
         }
-        this.options.cache?.files.set(path, { text, info });
+        this.options.cache?.files.set(path, syntax === undefined ? { text, info } : { text, info, syntax });
       }
       this.sources.set(path, info);
     }
     return this.sources.get(path) ?? undefined;
+  }
+
+  /** A root's syntax errors, where the check is tolerant (`syntax: 'tolerant'`). */
+  syntaxErrors(path: string): Diagnostic[] {
+    this.source(path);
+    const found = this.syntax.get(path);
+    return found === undefined ? [] : found.map((e) => ({ file: path, start: e.start, length: e.length, code: e.code, message: e.message }));
   }
 
   checkFile(path: string): Diagnostic[] {
@@ -392,6 +426,7 @@ class Checker {
     let olds = roots_.map(([path, f], k) => (r.reuse && f ? r.previous(path, f, worlds[k]!) : undefined));
     if (olds.some((o) => o?.cut)) olds = olds.map(() => undefined);
     for (const [k, [path, f]] of roots_.entries()) {
+      out.push(...this.syntaxErrors(path));
       if (!f || noCheck(f.tree)) {
         r.made.set(path, null);
         continue;
@@ -469,7 +504,7 @@ class Checker {
       else others.push([p, text]);
     }
     const o = this.options;
-    return { others, at, prepared: o.prepared, packages: JSON.stringify(o.packages ?? {}), globals: JSON.stringify(o.globals ?? []) };
+    return { others, at, prepared: o.prepared, packages: JSON.stringify(o.packages ?? {}), globals: JSON.stringify(o.globals ?? []), tolerant: o.syntax === 'tolerant' };
   }
 
   /** A name a statement's results depend on: an Identifier in `f` resolved by the binder, or not. */
@@ -2087,10 +2122,12 @@ interface World {
   readonly prepared: unknown;
   readonly packages: string;
   readonly globals: string;
+  /** Files were read by the tolerant parse: another file with a syntax error declares what its other statements do. */
+  readonly tolerant: boolean;
 }
 
 function sameWorld(a: World, b: World): boolean {
-  if (a.at !== b.at || a.prepared !== b.prepared || a.packages !== b.packages || a.globals !== b.globals || a.others.length !== b.others.length) return false;
+  if (a.at !== b.at || a.prepared !== b.prepared || a.packages !== b.packages || a.globals !== b.globals || a.tolerant !== b.tolerant || a.others.length !== b.others.length) return false;
   for (let i = 0; i < a.others.length; i++) {
     const x = a.others[i]!;
     const y = b.others[i]!;

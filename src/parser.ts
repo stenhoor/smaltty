@@ -38,6 +38,28 @@ export function parseWithErasures(text: string, fileName?: string): { tree: Tree
   return result;
 }
 
+/**
+ * @internal For the checker's tolerant parse (milestone 13): the tree, as parse() gives it, or the syntax error and
+ * where the last top-level statement before it ends (where the statement the error is in, or the comments before it,
+ * starts). The same parses as parseWithErasures, by Parser.probe, so parse() itself is untouched.
+ */
+export function parseOrStop(text: string, fileName?: string): Tree | { readonly error: ParseError; readonly after: number } {
+  try {
+    const declarationFile = !!fileName?.endsWith('.d.ts');
+    const first = new Parser(text, fileName, 0);
+    if (!declarationFile && first.startsAsModule()) return new Parser(text, fileName, C_AWAIT).probe();
+    const result = first.probe();
+    if ('error' in result) return result;
+    if (first.possibleTopLevelAwait && !declarationFile && (first.sawImportMeta || isModule(result))) {
+      return new Parser(text, fileName, C_AWAIT).probe();
+    }
+    return result;
+  } catch (e) {
+    if (e instanceof ParseError) return { error: e, after: 0 };
+    throw e;
+  }
+}
+
 /** TypeScript's isFileProbablyExternalModule, without import.meta (the parser tracks that). */
 function isModule(t: Tree): boolean {
   for (let n = t.first[t.root]!; n; n = t.next[n]!) {
@@ -397,6 +419,25 @@ class Parser {
     this.prevEnd = this.s.text.length;
     this.t.root = this.fin(K.SourceFile, 0, 0, m);
     return this.t;
+  }
+
+  /** parseSourceFile, keeping where the last top-level statement ends, for parseOrStop. */
+  probe(): Tree | { readonly error: ParseError; readonly after: number } {
+    let after = 0;
+    try {
+      this.next();
+      const m = this.st.length;
+      while (this.tok !== T.EOF) {
+        this.push(this.statement());
+        after = this.prevEnd;
+      }
+      this.prevEnd = this.s.text.length;
+      this.t.root = this.fin(K.SourceFile, 0, 0, m);
+      return this.t;
+    } catch (e) {
+      if (e instanceof ParseError) return { error: e, after };
+      throw e;
+    }
   }
 
   statement(): number {
