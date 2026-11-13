@@ -37,7 +37,7 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json && tsc -p tsconfig.build.json --emitDeclarationOnly --removeComments false",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && tsc -p tsconfig.build.json --emitDeclarationOnly --removeComments false && node scripts/prepare-builtins.mjs",
     "prepare": "npm run build",
     "typecheck": "node node_modules/typescript7/bin/tsc -p .",
     "test": "npm run build && node --test test/*.test.ts",

@@ -25,21 +25,21 @@ function loaded(specifier: string): string[] {
 }
 
 test('smaltty/strip loads the scanner, parser and stripper, and nothing of the binder or the checker', () => {
-  assert.deepEqual(loaded('smaltty/strip'), ['entry-strip.js', 'kinds.js', 'parser.js', 'scanner.js', 'strip.js', 'tokens.js', 'tree.js']);
+  assert.deepEqual(loaded('smaltty/strip'), ['entry-strip.js', 'kinds.js', 'parser.js', 'scanner.js', 'strip.js', 'tokens.js', 'tree.js', 'version.js']);
 });
 
 test('smaltty/bind loads the binder and the node kinds only', () => {
   assert.deepEqual(loaded('smaltty/bind'), ['binder.js', 'entry-bind.js', 'kinds.js']);
 });
 
-test('smaltty/check loads the checker, binder, built-in types and parser, and not the stripper', () => {
-  assert.deepEqual(loaded('smaltty/check'), ['binder.js', 'builtins.js', 'checker.js', 'entry-check.js', 'kinds.js', 'parser.js', 'scanner.js', 'tokens.js', 'tree.js']);
+test('smaltty/check loads the checker, binder, built-in types (and their prepared buffer), prepared declarations and parser, and not the stripper', () => {
+  assert.deepEqual(loaded('smaltty/check'), ['binder.js', 'builtins-prepared.js', 'builtins.js', 'checker.js', 'entry-check.js', 'kinds.js', 'parser.js', 'prepared.js', 'scanner.js', 'tokens.js', 'tree.js', 'version.js']);
 });
 
 test('smaltty still loads and exports everything', () => {
-  assert.deepEqual(loaded('smaltty'), ['binder.js', 'builtins.js', 'checker.js', 'entry-strip.js', 'index.js', 'kinds.js', 'parser.js', 'scanner.js', 'strip.js', 'tokens.js', 'tree.js']);
+  assert.deepEqual(loaded('smaltty'), ['binder.js', 'builtins-prepared.js', 'builtins.js', 'checker.js', 'entry-strip.js', 'index.js', 'kinds.js', 'parser.js', 'prepared.js', 'scanner.js', 'strip.js', 'tokens.js', 'tree.js', 'version.js']);
   const names = Object.keys(all).sort();
-  assert.deepEqual(names, ['Bindings', 'F', 'K', 'KIND_NAMES', 'Meaning', 'ParseError', 'Tree', 'VERSION', 'bind', 'check', 'checkCache', 'default', 'expectations', 'isTypeNode', 'parse', 'strip', 'transpile']);
+  assert.deepEqual(names, ['Bindings', 'F', 'K', 'KIND_NAMES', 'Meaning', 'PREPARED_FORMAT', 'ParseError', 'PreparedFiles', 'Tree', 'VERSION', 'bind', 'check', 'checkCache', 'default', 'expectations', 'isTypeNode', 'parse', 'prepare', 'readPrepared', 'strip', 'transpile']);
   // Every value an entry point exports is smaltty's own, the same object: a tree from one is a tree to the other.
   for (const entry of [stripEntry, bindEntry, checkEntry]) {
     for (const [name, value] of Object.entries(entry)) assert.equal(value, (all as Record<string, unknown>)[name], name);
@@ -77,7 +77,7 @@ test('smaltty/bind: the binder, on a tree from smaltty/strip', () => {
 });
 
 test('smaltty/check: the checker, with a cache, and the binder', () => {
-  assert.deepEqual(Object.keys(checkEntry).sort(), ['Bindings', 'Meaning', 'bind', 'check', 'checkCache', 'expectations']);
+  assert.deepEqual(Object.keys(checkEntry).sort(), ['Bindings', 'Meaning', 'PREPARED_FORMAT', 'PreparedFiles', 'bind', 'check', 'checkCache', 'expectations', 'prepare', 'readPrepared']);
   const files = new Map([
     ['/lib.d.ts', 'export declare function total(xs: number[]): number;\n'],
     ['/code.ts', "import { total } from 'lib';\ntotal([1, 2]).toFixd(2);\n"],

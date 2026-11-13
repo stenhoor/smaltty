@@ -4,3 +4,4 @@
  */
 export { bind, Bindings, Meaning, type BindSymbol } from './binder.js';
 export { check, checkCache, expectations, type CheckCache, type CheckOptions, type Diagnostic, type Expectation } from './checker.js';
+export { prepare, readPrepared, PreparedFiles, PREPARED_FORMAT } from './prepared.js';
