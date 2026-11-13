@@ -9,7 +9,7 @@ Milestones 1–9 are done (through the checker, checking in the apps, and TypeSc
 9's release is 0.10.0); milestones 9–15 were decided at gate D (2026-11-12) in
 docs/adr/0029-after-the-checker-trial.md, with how they reach consumers in
 docs/adr/0030-changing-smaltty-without-breaking-its-consumers.md; milestone 10 (entry points and size) is released as
-0.11.0, and milestone 11 is next. See docs/MILESTONES.md.
+0.11.0, and milestone 11 (prepared declarations) is built, for 0.12.0. See docs/MILESTONES.md.
 Several Claude Code sessions work on the smalt repos in parallel and cannot see each other: this file is the shared
 starting point, and its working rules match smaltdb's `CLAUDE.md`.
 
@@ -22,7 +22,8 @@ npm run typecheck      # TypeScript 7's tsc (--noEmit, strict, erasableSyntaxOnl
 npm test               # build, then node --test test/*.test.ts (the corpus checks among them)
 npm run test:self      # the same tests, with .ts files stripped by smaltty instead of Node (test/register.mjs)
 npm run bench          # the benchmark tables in docs/BENCHMARKS.md; --quick checks the harness only
-npm run bench:page     # the checkers in a page (Chromium; Playwright through NODE_PATH): smaltty and tsrs's WASM build
+npm run bench:page     # the checkers in a page (Chromium; Playwright through NODE_PATH): smaltty and tsrs's WASM build;
+                       # `node bench/page.ts --first` only the first check from the worker's start, text vs prepared
 npm run docs:dev       # the docs site (docs/, VitePress); docs:build fails on dead links (CI runs it)
 NODE_PATH=$(npm root -g) node scripts/downstream.mjs   # the downstream check: the consumers' tests on this smaltty
 ```
@@ -31,8 +32,11 @@ NODE_PATH=$(npm root -g) node scripts/downstream.mjs   # the downstream check: t
 
 - `src/`: `scanner.ts` (tokens on demand), `parser.ts` (TypeScript's grammar, TypeScript's tree shapes), `tree.ts` (the
   flat tree), `strip.ts` (types to spaces), `binder.ts` (which declaration each name means), `checker.ts` (types
-  of calls into the libraries a file imports, and tsc's errors on them), `kinds.ts` and `tokens.ts`
-  (codes). The entry points (milestone 10): `index.ts` (`smaltty`, everything), `entry-strip.ts` (`smaltty/strip`:
+  of calls into the libraries a file imports, and tsc's errors on them), `prepared.ts` (milestone 11: `prepare()`
+  writes files parsed and bound as one buffer, `readPrepared()` reads one back or refuses another smaltty's; `check()`
+  takes it as `prepared`), `builtins.ts` (the built-in types) and `builtins-prepared.ts` (them prepared: empty in
+  `src/`, written into `dist/` by `scripts/prepare-builtins.mjs`, the build's last step), `version.ts` (`VERSION`),
+  `kinds.ts` and `tokens.ts` (codes). The entry points (milestone 10): `index.ts` (`smaltty`, everything), `entry-strip.ts` (`smaltty/strip`:
   scanner, parser, stripper), `entry-bind.ts` (`smaltty/bind`) and `entry-check.ts` (`smaltty/check`: binder and
   checker); `test/entries.test.ts` holds each to the modules it loads. `dist/*.js` is built without comments, its
   `.d.ts` with them. `test/` imports the package by name, so
@@ -47,7 +51,7 @@ NODE_PATH=$(npm root -g) node scripts/downstream.mjs   # the downstream check: t
 - `scripts/downstream.mjs` (run daily by `.github/workflows/downstream.yml`): smaltkit's, smaltts's, smaltui's and
   smaltnb's own tests, the apps' e2e in Chromium, against this smaltty. A release is tagged only with it green.
 - `.github/workflows/release.yml` tags a release: run by hand on `main` with the version, after the release commit
-  (version in `package.json`, `VERSION` in `src/entry-strip.ts`, a dated `CHANGELOG.md` heading) is merged. It checks
+  (version in `package.json`, `VERSION` in `src/version.ts`, a dated `CHANGELOG.md` heading) is merged. It checks
   those, runs the tests and the downstream check on that commit, and pushes the annotated tag `v<version>`. Sessions
   can't push tags themselves (the session's git proxy refuses them); they start this workflow instead.
 - `corpus/` the input for tests and benchmarks ([corpus/README.md](corpus/README.md)). `bench/` the harness.

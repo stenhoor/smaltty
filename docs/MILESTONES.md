@@ -264,6 +264,30 @@ The plan, as it was:
 
 ## 11. Prepared declarations: the first check
 
+Status: built, 2026-11-13, for smaltty 0.12.0 (not released: the release follows the smaltkit, smaltui and smaltnb
+branches `claude/prepared-declarations`, which take it). What was built:
+
+- `prepare(files)` and `readPrepared(buffer)` (`src/prepared.ts`, exported from `smaltty/check` and `smaltty`): the
+  files' text, trees and bindings as one buffer, with a format version, smaltty's version and a fingerprint of the node
+  kinds, flags and meanings, its length and a checksum. `check()` takes it as `prepared`, beside text; a buffer that
+  differs in any of these is ignored and the text read (and without the text, the files are unknown and quiet). The
+  module-augmentation flag is kept per file; the "index" the checker reads is the binder's (symbols, declarations,
+  parents), so nothing else is computed per file on a first check.
+- The built-in types prepared when smaltty is built (`scripts/prepare-builtins.mjs` writes `dist/builtins-prepared.js`),
+  as measured to pay; read once per process.
+- smaltkit: `TypeCheckSetup.prepared` and `.fallback` (the text's URL, fetched by the worker only for a buffer it can't
+  read), `typeCheckWorker(setup, { warm: true })` (the prepared files read and a check of nothing, as soon as the
+  worker starts). smaltui writes `vendor/smaltdf/types.bin` and starts the worker while the page is idle; smaltnb writes
+  `types.bin` and starts the worker as the page starts. Both keep `types.json` for the fallback.
+- Measured ([Benchmarks](BENCHMARKS.md), "What milestone 11 says"): a page's first check, with the worker started and
+  warmed while the page is idle, 9–14 ms for smaltui's tabs and smaltnb's notebooks and 12.6 ms for a smaltts example
+  (21–71 ms from text); cold checks 1.4–3.0 ms; re-checks unchanged; the same errors. **Not met as written:** counted
+  from the worker's start, the first answer still takes 54–67 ms (63–111 ms from text), most of it loading
+  `smaltty/check` in the worker; under 20 ms holds only for a worker started before the check is wanted, which both
+  apps now do.
+
+The plan, as it was:
+
 - `prepare(files)`: declarations (`.d.ts`) parsed and bound once, written as one buffer (the trees are already flat
   typed arrays) with the names and the index the checker reads. `check()` takes prepared files beside text.
 - The built-in types prepared when smaltty is built. smaltui's and smaltnb's build steps that write `types.json` write

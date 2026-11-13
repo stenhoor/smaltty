@@ -57,6 +57,7 @@ export default defineConfig({
           { text: 'Stripping types', link: '/guide/stripping' },
           { text: 'Parsing', link: '/guide/parsing' },
           { text: 'Binding names', link: '/guide/binding' },
+          { text: 'Prepared declarations', link: '/guide/prepared' },
           { text: 'Status', link: '/guide/status' },
         ],
       },
