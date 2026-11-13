@@ -15,7 +15,7 @@ import { bind, check, checkCache, parse, prepare, strip } from 'smaltty';
 import { TSC7_VERSION, typescript7Checks } from '../test/checking.ts';
 import { tsrsChecks } from '../test/tsrs.ts';
 import { distUrl, entryPoints, moduleGraph, sizeOf } from './entries.ts';
-import { checkWorkloads, corpusFiles, generatedFiles, type CheckWorkload, type CorpusFile, type Group } from './corpus.ts';
+import { checkWorkloads, corpusFiles, editInside, generatedFiles, type CheckWorkload, type CorpusFile, type Group } from './corpus.ts';
 
 const quick = process.argv.includes('--quick');
 const require = createRequire(import.meta.url);
@@ -220,14 +220,15 @@ line();
 line("One user file checked with the library it calls, read from source (smaltts's 16 files, 184 KB; smaltdf's 9, 85 KB): " +
   "smaltty's `check()` against tsc (`strict`, `lib.es2022`) on the same files. **First check:** a fresh process, smaltty's modules " +
   'loaded, the first `check()` (median of runs); **prepared:** the same, with the library read from `prepare()`\'s buffer (milestone 11). **Cold:** in a warmed-up process, nothing kept from the previous check. ' +
-  '**After an edit:** the user file changed, the rest kept (smaltty: `checkCache()`; tsc: files kept and its previous program ' +
+  '**After an edit:** a one-line edit inside the user file\'s middle statement, the rest kept (smaltty: `checkCache()`, which keeps each statement\'s results ' +
+  '(milestone 12); **whole file:** `checkCache({ statements: false })`, the parsed files kept and the user file checked whole, as before 0.13.0; tsc: files kept and its previous program ' +
   'reused, as an editor does). **tsrs:** tsrs (a Rust port of TypeScript 7\'s checker, `npm i tsrs`) on the same files, a fresh ' +
   'process each time, as it has no API that keeps a program between checks; in brackets its own total time (`--extendedDiagnostics`), ' +
   'without the process\'s start. **TypeScript 7:** its `tsc` command (the Go compiler) the same way, with `lib.es2022`. ' +
   'Milliseconds; the smaltts row is the median of its 14 examples, with the slowest in brackets.');
 line();
-line('| Workload | smaltty first check | smaltty first check, prepared | smaltty cold | tsc cold | TypeScript 7: process (own time) | tsrs: process (own time) | smaltty after an edit | tsc after an edit |');
-line('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
+line('| Workload | smaltty first check | smaltty first check, prepared | smaltty cold | tsc cold | TypeScript 7: process (own time) | tsrs: process (own time) | smaltty after an edit | smaltty after an edit, whole file | tsc after an edit |');
+line('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
 {
   const workloads = checkWorkloads();
   const rows: { label: string; v: number[] }[] = [];
@@ -240,10 +241,15 @@ line('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
     const cold = time(() => check(w.files, opts), 600);
     const tscCold = time(() => tscWorkload(w, w.files.get(w.root)!), 1500, 3);
     let n = 0;
-    const edited = () => `${w.files.get(w.root)!}\n// edit ${n++}`;
+    // A one-line edit inside the middle statement (milestone 12): the cache keeps the other statements' results; with
+    // `statements: false` it keeps the parsed files only, as before 0.13.0, and the whole file is checked.
+    const texts = [0, 1, 2].map((k) => editInside(w.files.get(w.root)!, k));
+    const edited = () => texts[n++ % texts.length]!;
     const cache = checkCache();
     const editedFiles = new Map(w.files);
     const smEdit = time(() => { editedFiles.set(w.root, edited()); check(editedFiles, { ...opts, cache }); }, 600);
+    const wholeCache = checkCache({ statements: false });
+    const smEditWhole = time(() => { editedFiles.set(w.root, edited()); check(editedFiles, { ...opts, cache: wholeCache }); }, 600);
     const warm = { cache: new Map<string, ts.SourceFile>() };
     tscWorkload(w, edited(), warm);
     const tscEdit = time(() => tscWorkload(w, edited(), warm), 1500);
@@ -251,15 +257,15 @@ line('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
     const tsrsRuns = Array.from({ length: quick ? 1 : 5 }, () => tsrsChecks(w.files, { roots: [w.root], packages: w.packages, compilerOptions: { lib: ['es2022'] } })).sort((a, b) => a.ms - b.ms);
     const tsrsRun = tsrsRuns[tsrsRuns.length >> 1]!;
     const sevenRun = median(Array.from({ length: quick ? 1 : 5 }, () => typescript7Checks(w.files, { roots: [w.root], packages: w.packages, compilerOptions: { lib: ['es2022'] } })));
-    rows.push({ label: w.label, v: [first, cold, tscCold, sevenRun.ms, tsrsRun.ms, smEdit, tscEdit, sevenRun.totalMs, tsrsRun.totalMs, firstPrepared] });
+    rows.push({ label: w.label, v: [first, cold, tscCold, sevenRun.ms, tsrsRun.ms, smEdit, tscEdit, sevenRun.totalMs, tsrsRun.totalMs, firstPrepared, smEditWhole] });
   });
   const smaltts = rows.filter((r) => r.label.startsWith('smaltts '));
   const mid = (xs: number[]) => [...xs].sort((a, b) => a - b)[xs.length >> 1]!;
   const cell = (j: number) => `${fmt(mid(smaltts.map((r) => r.v[j]!)))} (${fmt(Math.max(...smaltts.map((r) => r.v[j]!)))})`;
-  line(`| smaltts's reference and guide examples (${smaltts.length}) | ${cell(0)} | **${cell(9)}** | **${cell(1)}** | ${cell(2)} | ${cell(3)} (${fmt(mid(smaltts.map((r) => r.v[7]!)))}) | ${cell(4)} (${fmt(mid(smaltts.map((r) => r.v[8]!)))}) | **${cell(5)}** | ${cell(6)} |`);
+  line(`| smaltts's reference and guide examples (${smaltts.length}) | ${cell(0)} | **${cell(9)}** | **${cell(1)}** | ${cell(2)} | ${cell(3)} (${fmt(mid(smaltts.map((r) => r.v[7]!)))}) | ${cell(4)} (${fmt(mid(smaltts.map((r) => r.v[8]!)))}) | **${cell(5)}** | ${cell(10)} | ${cell(6)} |`);
   for (const r of rows.filter((r) => !r.label.startsWith('smaltts '))) {
-    const [first, cold, tscCold, seven, tsrs, smEdit, tscEdit, sevenOwn, tsrsOwn, firstPrepared] = r.v.map(fmt);
-    line(`| ${r.label.replace(/^smaltdf (.*)$/, 'smaltdf: `$1`')} | ${first} | **${firstPrepared}** | **${cold}** | ${tscCold} | ${seven} (${sevenOwn}) | ${tsrs} (${tsrsOwn}) | **${smEdit}** | ${tscEdit} |`);
+    const [first, cold, tscCold, seven, tsrs, smEdit, tscEdit, sevenOwn, tsrsOwn, firstPrepared, smEditWhole] = r.v.map(fmt);
+    line(`| ${r.label.replace(/^smaltdf (.*)$/, 'smaltdf: `$1`')} | ${first} | **${firstPrepared}** | **${cold}** | ${tscCold} | ${seven} (${sevenOwn}) | ${tsrs} (${tsrsOwn}) | **${smEdit}** | ${smEditWhole} | ${tscEdit} |`);
   }
 }
 line();

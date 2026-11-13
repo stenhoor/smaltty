@@ -2,6 +2,7 @@
 // library code from the smalt repos, syntax edge cases, and generated scripts for scaling.
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { parse } from 'smaltty';
 
 export type Group = 'apps' | 'libs' | 'edge' | 'generated';
 
@@ -145,4 +146,17 @@ export function checkWorkloads(): CheckWorkload[] {
   }
   out.push({ label: 'smaltdf generated/40k.ts', files: new Map([...smaltdf, ['/gen/40k.ts', generatedScript(40_000)]]), root: '/gen/40k.ts', packages: dfPackages });
   return out;
+}
+
+/**
+ * `text` with a one-line edit inside its middle top-level statement, the `n`th of a series (a comment before the
+ * statement's closing `;` or `}`): the statement's text changes, as when someone types in it, and nothing else does.
+ */
+export function editInside(text: string, n: number): string {
+  const t = parse(text);
+  const statements = t.children(t.root).filter((s) => /[;}]$/.test(t.textOf(s)));
+  const s = statements[statements.length >> 1];
+  if (s === undefined) return `${text}\n// edit ${n}`;
+  const at = t.end[s]! - 1;
+  return `${text.slice(0, at)} /* edit ${n} */${text.slice(at)}`;
 }

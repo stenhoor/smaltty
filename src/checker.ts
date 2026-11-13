@@ -64,11 +64,29 @@ export interface CheckCache {
   readonly files: Map<string, { readonly text: string; readonly info: SourceInfo | null }>;
   /** Whether a file's text has a module augmentation, by path, while its text is the same. */
   readonly augments: Map<string, { readonly text: string; readonly has: boolean }>;
+  /**
+   * Each root's results, statement by statement (milestone 12), by path: a re-check after an edit checks again only
+   * the top-level statements whose text, or the declarations they use, changed, and keeps the others' errors. Without
+   * it (a cache made before 0.13.0, or `checkCache({ statements: false })`) each root is checked whole.
+   */
+  readonly statements?: Map<string, StatementResults>;
 }
 
-/** A cache for `check()` and `expectations()` to keep parsed files in between calls. */
-export function checkCache(): CheckCache {
-  return { files: new Map(), augments: new Map() };
+/** A root's results as the last check left them, statement by statement. Opaque but for what it says of that check. */
+export interface StatementResults {
+  /** How many of the root's top-level statements the last check took from the check before: their errors kept. */
+  readonly reused: number;
+  /** How many it checked. */
+  readonly checked: number;
+}
+
+/**
+ * A cache for `check()` and `expectations()` to keep parsed files in between calls, and each root's results per
+ * top-level statement (`statements: false` keeps only the parsed files, as before 0.13.0). The errors are the same as
+ * without a cache.
+ */
+export function checkCache(options: { readonly statements?: boolean } = {}): CheckCache {
+  return options.statements === false ? { files: new Map(), augments: new Map() } : { files: new Map(), augments: new Map(), statements: new Map() };
 }
 
 /** A `// @ts-expect-error` comment, and whether the checker finds an error on the line it covers. */
@@ -96,9 +114,23 @@ export function expectations(files: ReadonlyMap<string, string>, options: CheckO
 
 /** Check `files` (path to text) and return the errors found in the roots. */
 export function check(files: ReadonlyMap<string, string>, options: CheckOptions = {}): Diagnostic[] {
-  const c = new Checker(files, options);
-  const out: Diagnostic[] = [];
-  for (const path of options.roots ?? [...files.keys()]) out.push(...c.checkFile(path));
+  const roots = options.roots ?? [...files.keys()];
+  const store = options.cache?.statements;
+  if (store === undefined) {
+    const c = new Checker(files, options);
+    const out: Diagnostic[] = [];
+    for (const path of roots) out.push(...c.checkFile(path));
+    return out;
+  }
+  // Statements whose results are kept are taken from the last check; the rest are checked. Where that can't be shown
+  // to give a cold check's errors (see Recorder), everything is checked again, as a cold check would.
+  let c = new Checker(files, options, new Recorder(store, true));
+  let out = c.checkRoots(roots);
+  if (out === undefined) {
+    c = new Checker(files, options, new Recorder(store, false));
+    out = c.checkRoots(roots)!;
+  }
+  c.commit();
   return out;
 }
 
@@ -256,10 +288,22 @@ class Checker {
   /** Prepared declarations, when given and readable. */
   private readonly prepared: PreparedFiles | undefined;
 
-  constructor(files: ReadonlyMap<string, string>, options: CheckOptions) {
+  /**
+   * Times a guard cut a result short: a cycle (`typing`, a class among its own bases) or the depth limit. A result
+   * computed where none did is the same whichever statement asked for it first; one computed where one did may depend
+   * on what was being computed around it (milestone 12: see Recorder).
+   */
+  private hits = 0;
+  /** Members being collected: a class or interface among its own bases. */
+  private readonly building = new Set<string>();
+  /** What each statement depends on, where results are kept per statement (a cache with `statements`). */
+  private readonly rec: Recorder | undefined;
+
+  constructor(files: ReadonlyMap<string, string>, options: CheckOptions, rec?: Recorder) {
     this.files = files;
     this.options = options;
     this.prepared = options.prepared === undefined ? undefined : readPrepared(options.prepared);
+    this.rec = rec;
   }
 
   /** A prepared file to read for `path`: one whose text, if `files` has the path too, is that text. */
@@ -304,16 +348,165 @@ class Checker {
     if (!f) return [];
     const out: Diagnostic[] = [];
     const t = f.tree;
-    if (/^\s*\/\/\s*@ts-nocheck/m.test(t.text.slice(0, firstStatement(t)))) return out;
-    t.walk(t.root, (n) => {
+    if (noCheck(t)) return out;
+    const visit = this.visitor(f, out);
+    for (let s = t.first[t.root]!; s; s = t.next[s]!) {
+      visit(s);
+      t.walk(s, visit);
+    }
+    return this.silence(t, out);
+  }
+
+  /** The checks, for each node of a file a walk visits. */
+  private visitor(f: SourceInfo, out: Diagnostic[]): (n: number) => void {
+    const t = f.tree;
+    return (n) => {
       const kind = t.kind[n]!;
       if (kind === K.PropertyAccessExpression) this.checkProperty(f, n, out);
       else if (kind === K.CallExpression || kind === K.NewExpression) this.checkCall(f, n, out);
-    });
-    // As tsc: `// @ts-expect-error` and `// @ts-ignore` silence the errors on the line after them.
-    if (this.options.suppress === false) return out;
+    };
+  }
+
+  /** As tsc: `// @ts-expect-error` and `// @ts-ignore` silence the errors on the line after them. */
+  private silence(t: Tree, out: Diagnostic[]): Diagnostic[] {
+    if (this.options.suppress === false || !out.length) return out;
     const silenced = suppressedLines(t.text);
     return silenced.size ? out.filter((d) => !silenced.has(lineOf(t.text, d.start))) : out;
+  }
+
+  // -------------------------------------------------------------------------------------------------------------
+  // Results kept per statement (milestone 12).
+
+  /**
+   * Checks the roots statement by statement, keeping each statement's errors and what they depend on, and taking a
+   * statement's errors from the last check where neither changed. Undefined where that might not give a cold check's
+   * errors (a guard cut a result short in a check that took a statement's errors): the caller checks everything again.
+   */
+  checkRoots(roots: readonly string[]): Diagnostic[] | undefined {
+    const r = this.rec!;
+    const out: Diagnostic[] = [];
+    const roots_ = roots.map((path) => [path, this.source(path)] as const);
+    for (const [, f] of roots_) if (f) r.roots.add(f);
+    const worlds = roots_.map(([path]) => this.worldOf(path));
+    // The last check's results, where they can be used: none if a guard cut a result short in any of them.
+    let olds = roots_.map(([path, f], k) => (r.reuse && f ? r.previous(path, f, worlds[k]!) : undefined));
+    if (olds.some((o) => o?.cut)) olds = olds.map(() => undefined);
+    for (const [k, [path, f]] of roots_.entries()) {
+      if (!f || noCheck(f.tree)) {
+        r.made.set(path, null);
+        continue;
+      }
+      const t = f.tree;
+      const statements = t.children(t.root);
+      const old = olds[k];
+      const plan = old ? planReuse(old, f, statements) : undefined;
+      let now: Int32Array | undefined;
+      if (plan) {
+        now = new Int32Array(old!.statements.length);
+        for (let j = 0; j < plan.length; j++) if (plan[j]! >= 0) now[plan[j]!] = j;
+      }
+      // Statements of this check (index into `statements`), by unit.
+      const first = r.units.length;
+      const results: StatementRecord[] = [];
+      const found: Diagnostic[] = [];
+      const own: Diagnostic[] = [];
+      const visit = this.visitor(f, own);
+      let reused = 0;
+      for (let j = 0; j < statements.length; j++) {
+        const s = statements[j]!;
+        const start = t.start[s]!;
+        const i = plan === undefined ? -1 : plan[j]!;
+        if (i >= 0) {
+          const kept = old!.results[i]!;
+          for (const d of kept.errors) found.push({ file: d.file, start: d.start + start, length: d.length, code: d.code, message: d.message });
+          // The statements it read from are taken too (planReuse): by their index now.
+          results.push(kept.reads.length && kept.reads.some((x) => now![x] !== x) ? { ...kept, reads: kept.reads.map((x) => now![x]!) } : kept);
+          r.units.push(undefined);
+          reused++;
+          r.reusedAny = true;
+          if (r.cut) return undefined;
+          continue;
+        }
+        const unit = r.begin(f);
+        const hits = this.hits;
+        own.length = 0;
+        visit(s);
+        t.walk(s, visit);
+        const cut = this.hits !== hits;
+        r.unit = undefined;
+        // A result cut short may depend on what was computed before it, which a statement taken here didn't compute.
+        if (cut) {
+          r.cut = true;
+          if (r.reusedAny) return undefined;
+        }
+        const end = t.end[s]!;
+        const inside = own.every((d) => d.start >= start && d.start + d.length <= end);
+        const reads = [...unit.reads].filter((u) => u >= first).map((u) => u - first);
+        results.push({ errors: own.map((d) => ({ ...d, start: d.start - start })), names: r.names(unit), reads, cut, whole: unit.whole || !inside || unit.reads.size !== reads.length });
+        found.push(...own);
+      }
+      r.made.set(path, new FileRecord(f, statements, results, worlds[k]!, reused, statements.length - reused));
+      out.push(...this.silence(t, found));
+    }
+    return out;
+  }
+
+  /** Writes the results this check kept into the cache. */
+  commit(): void {
+    const r = this.rec!;
+    for (const [path, record] of r.made) {
+      if (record === null) r.store.delete(path);
+      else r.store.set(path, record);
+    }
+  }
+
+  /** What a root's results depend on outside the root: the other files, and the options that say how to read them. */
+  private worldOf(path: string): World {
+    const others: [string, string][] = [];
+    let at = -1;
+    for (const [p, text] of this.files) {
+      if (p === path) at = others.length;
+      else others.push([p, text]);
+    }
+    const o = this.options;
+    return { others, at, prepared: o.prepared, packages: JSON.stringify(o.packages ?? {}), globals: JSON.stringify(o.globals ?? []) };
+  }
+
+  /** A name a statement's results depend on: an Identifier in `f` resolved by the binder, or not. */
+  private note(f: SourceInfo, node: number): void {
+    const u = this.rec!.unit;
+    if (u === undefined || u.file !== f) return;
+    const top = u.top;
+    if (top === undefined) return;
+    const s = f.bindings.symbolOf[node]!;
+    if (s === 0) {
+      if (f.tree.kind[node] === K.Identifier) u.names.add(f.tree.textOf(node));
+    } else if (top[s] === 1) u.names.add(s);
+  }
+
+  /** The current statement reads `f`'s statements as a module's: it depends on the whole file, where `f` is its own. */
+  private wholeFile(f: SourceInfo): void {
+    const u = this.rec!.unit;
+    if (u !== undefined && u.file === f) u.whole = true;
+  }
+
+  /** A result computed for a node of `f` (key in `writers`), by the current statement. */
+  private wrote(writers: Map<string, number>, f: SourceInfo, key: string): void {
+    const r = this.rec!;
+    const u = r.unit;
+    if (u === undefined) return;
+    if (f === u.file) writers.set(key, r.units.length - 1);
+    else if (r.roots.has(f)) writers.set(key, -1); // a root's node, computed while another root was checked
+  }
+
+  /** A result for a node of `f` read: what the statement that computed it depends on, the reader does too. */
+  private read(writers: Map<string, number>, f: SourceInfo, key: string): void {
+    const r = this.rec!;
+    const u = r.unit;
+    if (u === undefined || f !== u.file) return;
+    const w = writers.get(key);
+    if (w === undefined || w === -1) u.whole = true;
+    else if (w !== r.units.length - 1) u.reads.add(w);
   }
 
   // -------------------------------------------------------------------------------------------------------------
@@ -767,12 +960,19 @@ class Checker {
   private typeOfExpr(f: SourceInfo, n: number): Type {
     const key = `${f.path}:${n}`;
     const known = this.exprTypes.get(key);
-    if (known) return known;
-    if (this.typing.has(key)) return UNKNOWN;
+    if (known) {
+      if (this.rec !== undefined) this.read(this.rec.exprs, f, key);
+      return known;
+    }
+    if (this.typing.has(key)) {
+      this.hits++;
+      return UNKNOWN;
+    }
     this.typing.add(key);
     try {
       const type = this.typeOfExprInner(f, n);
       this.exprTypes.set(key, type);
+      if (this.rec !== undefined) this.wrote(this.rec.exprs, f, key);
       return type;
     } finally {
       this.typing.delete(key);
@@ -923,6 +1123,7 @@ class Checker {
 
   /** The declaration node an Identifier refers to, in its own file. */
   private declarationOf(f: SourceInfo, name: number): Decl | undefined {
+    if (this.rec !== undefined) this.note(f, name);
     const at = f.bindings.declaration(name);
     if (!at) return undefined;
     const node = f.bindings.parent[at]!;
@@ -931,7 +1132,10 @@ class Checker {
 
   private valueOfDecl(d: Decl): Type {
     const key = `value:${keyOf(d)}`;
-    if (this.typing.has(key)) return UNKNOWN; // a cycle: `const a = b; const b = a;`
+    if (this.typing.has(key)) {
+      this.hits++;
+      return UNKNOWN; // a cycle: `const a = b; const b = a;`
+    }
     this.typing.add(key);
     try {
       return this.valueOfDeclInner(d);
@@ -973,7 +1177,7 @@ class Checker {
    */
   private contextualParameter(d: Decl): Type {
     const key = keyOf(d);
-    const known = this.contextual.get(key);
+    const known = this.contextualOf(d.file, key);
     if (known) return known;
     const b = d.file.bindings;
     const t = d.file.tree;
@@ -987,13 +1191,22 @@ class Checker {
     }
     if (t.kind[call] !== K.CallExpression || t.first[call] === at) return UNKNOWN;
     this.resolveCall(d.file, call);
-    return this.contextual.get(key) ?? UNKNOWN;
+    return this.contextualOf(d.file, key) ?? UNKNOWN;
+  }
+
+  /** A parameter's contextual type, where a call typed it. */
+  private contextualOf(f: SourceInfo, key: string): Type | undefined {
+    const known = this.contextual.get(key);
+    if (known === undefined) return undefined;
+    if (this.rec !== undefined) this.read(this.rec.contextual, f, key);
+    return known;
   }
 
   /** The declarations a function's name has that callers can call: its overloads, or the one with a body. */
   private overloads(d: Decl): Decl[] {
     const t = d.file.tree;
     const name = t.first[d.node]!;
+    if (this.rec !== undefined) this.note(d.file, name);
     const symbol = d.file.bindings.symbol(name);
     const decls = (symbol?.declarations ?? [name]).map((n) => d.file.bindings.parent[n]!).filter((n) => t.kind[n] === K.FunctionDeclaration);
     const signatures = decls.filter((n) => !this.childrenOf(t, n).some((c) => t.kind[c] === K.Block));
@@ -1006,13 +1219,20 @@ class Checker {
   private resolveCall(f: SourceInfo, call: number): Resolved {
     const key = `${f.path}:${call}`;
     const known = this.calls.get(key);
-    if (known) return known;
+    if (known) {
+      if (this.rec !== undefined) this.read(this.rec.calls, f, key);
+      return known;
+    }
     const none: Resolved = { sig: undefined, env: NO_ENV, type: UNKNOWN };
-    if (this.typing.has(`call:${key}`)) return none;
+    if (this.typing.has(`call:${key}`)) {
+      this.hits++;
+      return none;
+    }
     this.typing.add(`call:${key}`);
     try {
       const r = this.resolveCallInner(f, call) ?? none;
       this.calls.set(key, r);
+      if (this.rec !== undefined) this.wrote(this.rec.calls, f, key);
       return r;
     } finally {
       this.typing.delete(`call:${key}`);
@@ -1051,7 +1271,10 @@ class Checker {
         const e = expected[j];
         if (e === undefined || this.annotationOf(t, p) !== undefined || t.kind[t.first[p]!] !== K.Identifier) continue;
         const type = this.annotationOf(st, e);
-        if (type !== undefined) this.contextual.set(`${f.path}:${p}`, this.typeOfNode(sig.decl.file, type, env));
+        if (type === undefined) continue;
+        const key = `${f.path}:${p}`;
+        this.contextual.set(key, this.typeOfNode(sig.decl.file, type, env));
+        if (this.rec !== undefined) this.wrote(this.rec.contextual, f, key);
       }
       // The return type: an expression body's type, unified with the expected function's return type.
       const body = t.children(arg).at(-1)!;
@@ -1214,6 +1437,7 @@ class Checker {
 
   /** The declaration a module exports under `name`, following re-exports. */
   private exportOf(f: SourceInfo, name: string, seen: Set<string>): Decl | undefined {
+    if (this.rec !== undefined) this.wholeFile(f);
     if (seen.has(f.path)) return undefined;
     seen.add(f.path);
     const t = f.tree;
@@ -1261,6 +1485,7 @@ class Checker {
 
   /** A top-level declaration of `name` in a file (for `export { name }`). */
   private localDeclaration(f: SourceInfo, name: string): Decl | undefined {
+    if (this.rec !== undefined) this.wholeFile(f);
     const t = f.tree;
     for (let s = t.first[t.root]!; s; s = t.next[s]!) {
       const kind = t.kind[s]!;
@@ -1304,7 +1529,10 @@ class Checker {
 
   /** A type node's type, with `env` giving the type parameters in scope their arguments. */
   private typeOfNode(f: SourceInfo, n: number, env: Env): Type {
-    if (this.depth > 60) return UNKNOWN; // a recursive type: not modelled
+    if (this.depth > 60) {
+      this.hits++;
+      return UNKNOWN; // a recursive type: not modelled
+    }
     this.depth++;
     try {
       return this.typeOfNodeInner(f, n, env);
@@ -1520,6 +1748,7 @@ class Checker {
   private instanceOf(d: Decl, args: readonly Type[]): Type {
     const t = d.file.tree;
     const name = t.first[d.node]!;
+    if (this.rec !== undefined) this.note(d.file, name);
     const symbol = d.file.bindings.symbol(name);
     const kinds = new Set([K.ClassDeclaration, K.InterfaceDeclaration]);
     const decls = (symbol?.declarations ?? [name]).map((x) => d.file.bindings.parent[x]!).filter((x) => kinds.has(t.kind[x]!));
@@ -1627,11 +1856,34 @@ class Checker {
   private membersOf(type: Extract<Type, { k: 'object' }>): Members {
     const key = type.decls.map((d) => keyOf(d)).join('|');
     let m = this.members.get(key);
-    if (m) return m;
+    const file = this.rec === undefined ? undefined : this.membersFile(type);
+    if (m) {
+      // Still being collected: a cycle through its bases.
+      if (this.building.has(key)) this.hits++;
+      if (file !== undefined) this.read(this.rec!.members, file, key);
+      return m;
+    }
     m = { byName: new Map(), open: false };
     this.members.set(key, m); // before reading bases, so a cycle ends here
-    for (const d of type.decls) this.collectMembers(d, m);
+    this.building.add(key);
+    try {
+      for (const d of type.decls) this.collectMembers(d, m);
+    } finally {
+      this.building.delete(key);
+    }
+    if (file !== undefined) this.wrote(this.rec!.members, file, key);
     return m;
+  }
+
+  /** The file whose statements a type's members are kept for: the current statement's, or another root's. */
+  private membersFile(type: Extract<Type, { k: 'object' }>): SourceInfo | undefined {
+    const r = this.rec!;
+    let other: SourceInfo | undefined;
+    for (const d of type.decls) {
+      if (d.file === r.unit?.file) return d.file;
+      if (other === undefined && r.roots.has(d.file)) other = d.file;
+    }
+    return other;
   }
 
   private collectMembers(d: Decl, m: Members): void {
@@ -1780,6 +2032,308 @@ function lineOf(text: string, offset: number): number {
 function firstStatement(t: Tree): number {
   const s = t.first[t.root]!;
   return s ? t.start[s]! : t.text.length;
+}
+
+/** A `// @ts-nocheck` comment before the first statement: nothing in the file is checked. */
+function noCheck(t: Tree): boolean {
+  return /^\s*\/\/\s*@ts-nocheck/m.test(t.text.slice(0, firstStatement(t)));
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Results kept per top-level statement (milestone 12, ty's incremental queries).
+//
+// A check walks a root's top-level statements in order, and each statement's errors come from the nodes inside it. A
+// statement's errors depend on its own text and on what checking it read, which is recorded as it is checked:
+//
+// - names: each Identifier of its file that the checker resolves (`declarationOf`, a class's or function's merged
+//   declarations) to a top-level declaration, or to none (a global, a built-in), by name, including those inside
+//   the declarations it followed. It depends on the list of top-level statements that declare the name, in order;
+//   a statement with the same text is the same declaration. So a statement added that declares the name, a
+//   declaration's text edited, or one taken away, checks it again.
+// - results another statement of its file computed and it read (a declaration's type, a call resolved, a parameter
+//   typed by its call, a class's members): it keeps its errors only if that statement keeps its own, and is still
+//   before it. What that statement read is then the same too.
+// - the whole file, where it reads its own file as a module (an import of itself, `globals`), or a result of its file
+//   that another root's checking computed: it keeps its errors only while the file's text is the same.
+// - its file's `declare module` blocks, and whether the file is a module or strict: a change there checks every
+//   statement of the file.
+// - the other files' text and order, `packages`, `globals` and `prepared` (by identity): a change checks every
+//   statement.
+//
+// The checker's results don't depend on which statement asked for them first, except where a guard cut one short (a
+// cycle, the depth limit; `hits`): there a statement's results may depend on what was computed before it, which a
+// statement whose errors were taken did not compute. So a check where a guard cut a result short takes no statement's
+// errors: it is checked again whole, as a cold check would, and so is the next check of a root where it happened.
+
+/** One top-level statement's results, kept for the next check. */
+interface StatementRecord {
+  /** Its errors, `start` counted from the statement's start, before `// @ts-expect-error` silences any. */
+  readonly errors: readonly Diagnostic[];
+  /** The top-level names it resolved. */
+  readonly names: readonly string[];
+  /** The statements before it (their index) whose results it read. */
+  readonly reads: readonly number[];
+  /** It depends on the whole file: kept only while the file's text is the same. */
+  readonly whole: boolean;
+  /** A guard cut a result short while it was checked. */
+  readonly cut: boolean;
+}
+
+/** What a root's results depend on outside it. */
+interface World {
+  /** The other files, in order, and where the root is among them. */
+  readonly others: readonly (readonly [string, string])[];
+  readonly at: number;
+  readonly prepared: unknown;
+  readonly packages: string;
+  readonly globals: string;
+}
+
+function sameWorld(a: World, b: World): boolean {
+  if (a.at !== b.at || a.prepared !== b.prepared || a.packages !== b.packages || a.globals !== b.globals || a.others.length !== b.others.length) return false;
+  for (let i = 0; i < a.others.length; i++) {
+    const x = a.others[i]!;
+    const y = b.others[i]!;
+    if (x[0] !== y[0] || x[1] !== y[1]) return false;
+  }
+  return true;
+}
+
+/** A root's results, statement by statement, as a check left them. */
+class FileRecord implements StatementResults {
+  /** A guard cut a result short while one of its statements was checked. */
+  readonly cut: boolean;
+  readonly info: SourceInfo;
+  readonly statements: readonly number[];
+  readonly results: readonly StatementRecord[];
+  readonly world: World;
+  readonly reused: number;
+  readonly checked: number;
+  constructor(info: SourceInfo, statements: readonly number[], results: readonly StatementRecord[], world: World, reused: number, checked: number) {
+    this.info = info;
+    this.statements = statements;
+    this.results = results;
+    this.world = world;
+    this.reused = reused;
+    this.checked = checked;
+    this.cut = results.some((r) => r.cut);
+  }
+}
+
+/** A statement being checked: what it reads. */
+interface Unit {
+  readonly file: SourceInfo;
+  /** The file's top-level symbols (index + 1), or undefined where the binder's scopes aren't known (prepared). */
+  readonly top: Uint8Array | undefined;
+  /** Top-level symbols (by index + 1) and names declared nowhere (by text) it resolved. */
+  readonly names: Set<number | string>;
+  /** Statements (by index in `units`) whose results it read. */
+  readonly reads: Set<number>;
+  whole: boolean;
+}
+
+/**
+ * A check's statements, what each read, and the results to keep. A statement's errors are taken from the last check
+ * when its text is the same, the declarations of the names it resolved are the same statements, and the statements
+ * whose results it read are taken too; and when no guard cut a result short, in the last check or in this one (a
+ * result computed where none did is the same, whichever statement computed it first). Otherwise everything is checked
+ * again, as a cold check would.
+ */
+class Recorder {
+  /** By statement checked, roots in order; undefined for one whose results were taken. */
+  readonly units: (Unit | undefined)[] = [];
+  unit: Unit | undefined;
+  /** A statement's errors were taken from the last check. */
+  reusedAny = false;
+  /** A guard cut a result short in this check. */
+  cut = false;
+  readonly roots = new Set<SourceInfo>();
+  /** The statement (index in `units`) that computed each result, by its key: -1 for a root's result computed for another root. */
+  readonly exprs = new Map<string, number>();
+  readonly calls = new Map<string, number>();
+  readonly contextual = new Map<string, number>();
+  readonly members = new Map<string, number>();
+  /** Results to keep, by root: null to drop a root's. */
+  readonly made = new Map<string, FileRecord | null>();
+  private readonly tops = new Map<SourceInfo, Uint8Array | undefined>();
+  readonly store: Map<string, StatementResults>;
+  /** Take a statement's errors from the last check where it can. */
+  readonly reuse: boolean;
+  constructor(store: Map<string, StatementResults>, reuse: boolean) {
+    this.store = store;
+    this.reuse = reuse;
+  }
+
+  /** The last check's results for a root, where they can be used. */
+  previous(path: string, f: SourceInfo, world: World): FileRecord | undefined {
+    const old = this.store.get(path);
+    if (!(old instanceof FileRecord) || !sameWorld(old.world, world)) return undefined;
+    if (f.bindings.top === undefined || old.info.bindings.top === undefined) return undefined;
+    return old;
+  }
+
+  begin(f: SourceInfo): Unit {
+    let top = this.tops.get(f);
+    if (!this.tops.has(f)) {
+      const scopes = f.bindings.top;
+      if (scopes !== undefined) {
+        top = new Uint8Array(f.bindings.symbols.length + 1);
+        for (const s of scopes.file.values()) top[s] = 1;
+        for (const s of scopes.global.values()) top[s] = 1;
+      }
+      this.tops.set(f, top);
+    }
+    const unit: Unit = { file: f, top, names: new Set(), reads: new Set(), whole: top === undefined };
+    this.units.push(unit);
+    this.unit = unit;
+    return unit;
+  }
+
+  /** The names a statement resolved. */
+  names(unit: Unit): string[] {
+    const symbols = unit.file.bindings.symbols;
+    const names = new Set<string>();
+    for (const n of unit.names) names.add(typeof n === 'number' ? symbols[n - 1]!.name : n);
+    return [...names];
+  }
+}
+
+/**
+ * Which of a root's statements keep their results from `old`: for each statement, the index of the same statement in
+ * `old`, or -1 to check it. Undefined to check them all.
+ */
+function planReuse(old: FileRecord, f: SourceInfo, now: readonly number[]): Int32Array | undefined {
+  const ot = old.info.tree;
+  const nt = f.tree;
+  const os = old.statements;
+  const before = old.info.bindings.top!;
+  const after = f.bindings.top!;
+  if (before.module !== after.module || before.strict !== after.strict) return undefined;
+  const match = new Int32Array(now.length).fill(-1);
+  const same = old.info === f;
+  if (same) {
+    for (let j = 0; j < now.length; j++) match[j] = j;
+  } else {
+    matchStatements(ot, os, nt, now, match);
+    // `declare module` blocks add to other files' interfaces, in order: any change checks the whole file.
+    const taken = new Uint8Array(os.length);
+    let last = -1;
+    for (let j = 0; j < now.length; j++) {
+      const i = match[j]!;
+      if (i >= 0) taken[i] = 1;
+      if (nt.kind[now[j]!] !== K.ModuleDeclaration) continue;
+      if (i < 0 || i < last) return undefined;
+      last = i;
+    }
+    for (let i = 0; i < os.length; i++) if (!taken[i] && ot.kind[os[i]!] === K.ModuleDeclaration) return undefined;
+  }
+  // A name's declarations, as statements of `old` (new statements as -1 - their index): the same list is the same
+  // declarations.
+  const changed = new Map<string, boolean>();
+  const isChanged = (name: string): boolean => {
+    let c = changed.get(name);
+    if (c !== undefined) return c;
+    if (same) c = false;
+    else {
+      const was = declarers(old.info, os, name, null);
+      const is = declarers(f, now, name, match);
+      c = was.length !== is.length || was.some((x, k) => x !== is[k]);
+    }
+    changed.set(name, c);
+    return c;
+  };
+  const whole = same || ot.text === nt.text;
+  const plan = new Int32Array(now.length).fill(-1);
+  const taken = new Uint8Array(old.statements.length);
+  for (let j = 0; j < now.length; j++) {
+    const i = match[j]!;
+    if (i < 0) continue;
+    const r = old.results[i]!;
+    if ((whole || !r.whole) && !r.names.some(isChanged)) {
+      plan[j] = i;
+      taken[i] = 1;
+    }
+  }
+  // A statement is taken only if the statements whose results it read are, and are still before it.
+  const at = new Int32Array(old.statements.length).fill(-1);
+  for (let j = 0; j < now.length; j++) if (plan[j]! >= 0) at[plan[j]!] = j;
+  for (let again = true; again; ) {
+    again = false;
+    for (let j = 0; j < now.length; j++) {
+      const i = plan[j]!;
+      if (i < 0 || old.results[i]!.reads.every((x) => taken[x] && at[x]! < j)) continue;
+      plan[j] = -1;
+      taken[i] = 0;
+      again = true;
+    }
+  }
+  return plan;
+}
+
+/** The statements of `old` that are the statements of `now` (`match`): the same text, from both ends, then by text. */
+function matchStatements(ot: Tree, os: readonly number[], nt: Tree, now: readonly number[], match: Int32Array): void {
+  const a = ot.text;
+  const b = nt.text;
+  const max = Math.min(a.length, b.length);
+  // The common prefix and suffix, compared a block at a time (a slice's comparison is the engine's), then by character.
+  const block = 512;
+  let p = 0;
+  while (p + block <= max && a.slice(p, p + block) === b.slice(p, p + block)) p += block;
+  while (p < max && a.charCodeAt(p) === b.charCodeAt(p)) p++;
+  let q = 0;
+  while (q + block <= max - p && a.slice(a.length - q - block, a.length - q) === b.slice(b.length - q - block, b.length - q)) q += block;
+  while (q < max - p && a.charCodeAt(a.length - 1 - q) === b.charCodeAt(b.length - 1 - q)) q++;
+  const delta = b.length - a.length;
+  let i = 0;
+  let j = 0;
+  while (i < os.length && j < now.length && ot.end[os[i]!]! <= p && ot.start[os[i]!] === nt.start[now[j]!] && ot.end[os[i]!] === nt.end[now[j]!]) match[j++] = i++;
+  let i2 = os.length - 1;
+  let j2 = now.length - 1;
+  while (i2 >= i && j2 >= j && ot.start[os[i2]!]! >= a.length - q && ot.start[os[i2]!]! + delta === nt.start[now[j2]!] && ot.end[os[i2]!]! + delta === nt.end[now[j2]!]) match[j2--] = i2--;
+  if (i > i2 || j > j2) return;
+  const byText = new Map<string, number[]>();
+  for (let k = i; k <= i2; k++) {
+    const text = ot.textOf(os[k]!);
+    const list = byText.get(text);
+    if (list) list.push(k);
+    else byText.set(text, [k]);
+  }
+  for (let k = j; k <= j2; k++) {
+    const list = byText.get(nt.textOf(now[k]!));
+    if (list?.length) match[k] = list.shift()!;
+  }
+}
+
+/**
+ * The statements that declare a top-level name, in order, as indexes into `statements`; with `match`, as the
+ * statements of the last check they are (-1 - their index for a new one).
+ */
+function declarers(f: SourceInfo, statements: readonly number[], name: string, match: Int32Array | null): number[] {
+  const top = f.bindings.top!;
+  const out: number[] = [];
+  const t = f.tree;
+  const add = (s: number | undefined) => {
+    if (s === undefined) return;
+    for (const d of f.bindings.symbols[s - 1]!.declarations) {
+      const k = statementAt(t, statements, t.start[d]!);
+      out.push(match === null ? k : match[k]! >= 0 ? match[k]! : -1 - k);
+    }
+  };
+  add(top.file.get(name));
+  if (top.global !== top.file) add(top.global.get(name));
+  return out;
+}
+
+/** The index of the statement that holds `pos`. */
+function statementAt(t: Tree, statements: readonly number[], pos: number): number {
+  let lo = 0;
+  let hi = statements.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (t.start[statements[mid]!]! <= pos) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
