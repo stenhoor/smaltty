@@ -304,6 +304,34 @@ test("smaltdf's API in the apps and generated scripts, mutated: every smaltty er
   assert.ok(r.messageDiffs.length <= MSG_DF, `${r.messageDiffs.length} messages differ`);
 });
 
+test('arrays: an object element keeps its type; a filter whose callback may be a guard is quiet (found on smaltql, smaltfl)', () => {
+  const r = compareChecks(new Map([['/user.ts', `interface C { name: string }
+class A { a = 1 } class B extends A { b = 2 }
+const col = (name: string): C => ({ name });
+const cols = [col('a')];
+cols.push(col('b'));
+cols.nme;
+cols[0]!.name;
+declare const xs: (number | null)[]; declare const as: A[]; declare const ns: number[];
+declare const isB: (a: A) => a is B;
+function q(v: readonly number[]) { return v; }
+function qb(v: readonly B[]) { return v; }
+q(xs.filter((v): v is number => v !== null));
+q(xs.filter((v) => v !== null));
+qb(as.filter((v) => v instanceof B));
+qb(as.filter(isB));
+qb(as.filter((v) => isB(v)));
+ns.filter((n) => n > 1).lenght;
+export {};
+`]]), { roots: ['/user.ts'] });
+  assert.deepEqual(r.falseErrors, []);
+  assert.deepEqual(r.smaltty.map((d) => [d.code, d.message]), [
+    [2339, "Property 'nme' does not exist on type 'C[]'."],
+    [2551, "Property 'lenght' does not exist on type 'number[]'. Did you mean 'length'?"],
+  ]);
+  assert.equal(r.caught, r.tsc.length);
+});
+
 test('the built-in types: arrays, strings, numbers, maps, sets, promises, Math and JSON', () => {
   const r = compareChecks(new Map([['/user.ts', `const xs = [1, 2, 3];
 xs.pussh(4);

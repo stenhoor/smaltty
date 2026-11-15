@@ -27,6 +27,13 @@ Milestone 14, coverage: its first slice, the three gaps smaltml found ([stenhoor
 
 - Too few arguments to `new` (TS2554, TS2555) are reported on the whole `new` expression, as tsc does, not on the class's
   name.
+- Two false errors, TS2345, found by comparing the checker with tsc on smaltql's and smaltfl's source:
+  - An array literal of objects (`[col('a')]`) was typed as `never[]`, so `push()` refused every argument. It is
+    typed by its elements now. An array literal that doesn't fit where it is passed or assigned is quiet: tsc reports
+    it at the element, not modelled yet.
+  - `filter`, `find` and `findLast` gave the array's own element type where the callback narrows it. Examples are a
+    guard written as one (`(v): v is number => v !== null`), one passed by name, and, as TypeScript 5.5 infers guards,
+    an arrow on an array of a union or one whose body narrows its parameter. Their result is unknown there, so quiet.
 
 ## 0.14.1 (2026-11-15)
 
