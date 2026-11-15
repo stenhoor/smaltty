@@ -1,10 +1,13 @@
-// The downstream check (ADR 0030, decision 2): this smaltty under its four consumers' own tests. Each consumer is
+// The downstream check (ADR 0030, decision 2): this smaltty under its five consumers' own tests. Each consumer is
 // checked out at its default branch, pointed at this smaltty, and tested as its CI tests it:
 //
 //   smaltkit  depends on smaltty: install, typecheck, test; then packed, built against this smaltty, for the apps
 //   smaltts   depends on smaltty (its checker and strip tests): install, its pinned packages, test
 //   smaltui   gets smaltty through smaltkit (the smaltkit above): install, its pinned packages, typecheck, test (e2e)
 //   smaltnb   gets smaltty through smaltkit (the smaltkit above): install, its pinned packages, typecheck, test, e2e
+//   smaltml   gets smaltty through smaltkit (the smaltkit above): install, typecheck, test (its docs examples are
+//             checked by smaltty, through smaltkit/typechecker: generic models, overloads, this-typed returns and type
+//             guards, which the others don't exercise; stenhoor/smaltty#38)
 //
 // "Pointed at" means the dependency in the checkout's package.json becomes a tarball of this smaltty (`npm pack`, which
 // builds dist/ as `prepare` does for a GitHub install), or of that smaltkit, and `npm install` resolves it; nothing is
@@ -14,9 +17,9 @@
 // The apps' end-to-end tests drive headless Chromium with Playwright, which isn't a dependency of any of them: install
 // it outside the checkouts and point NODE_PATH at it (as smaltnb's CI does), with its Chromium.
 //
-//   NODE_PATH=$(npm root -g) node scripts/downstream.mjs              all four, in a temporary folder
+//   NODE_PATH=$(npm root -g) node scripts/downstream.mjs              all five, in a temporary folder
 //   node scripts/downstream.mjs --work ../downstream                 keep the checkouts there (reused if present)
-//   node scripts/downstream.mjs --only smaltkit,smaltts              some of them (smaltui and smaltnb need smaltkit)
+//   node scripts/downstream.mjs --only smaltkit,smaltts              some of them (smaltui, smaltnb and smaltml need smaltkit)
 //   node scripts/downstream.mjs --ref smaltkit=some-branch           another branch than main
 //   node scripts/downstream.mjs --repo smaltnb=/path/to/checkout     clone from a local repository instead of GitHub
 //
@@ -44,10 +47,10 @@ const pairs = (name) => {
   return out;
 };
 
-const ALL = ['smaltkit', 'smaltts', 'smaltui', 'smaltnb'];
+const ALL = ['smaltkit', 'smaltts', 'smaltui', 'smaltnb', 'smaltml'];
 const only = opt('--only')?.split(',') ?? ALL;
 for (const name of only) if (!ALL.includes(name)) throw new Error(`--only: ${name} isn't one of ${ALL.join(', ')}`);
-const refs = { smaltkit: 'main', smaltts: 'main', smaltui: 'main', smaltnb: 'main', ...pairs('--ref') };
+const refs = { smaltkit: 'main', smaltts: 'main', smaltui: 'main', smaltnb: 'main', smaltml: 'main', ...pairs('--ref') };
 const repos = pairs('--repo');
 const work = resolve(opt('--work') ?? mkdtempSync(join(tmpdir(), 'smaltty-downstream-')));
 mkdirSync(work, { recursive: true });
@@ -192,6 +195,24 @@ for (const app of ['smaltui', 'smaltnb']) {
       if (!scriptsOf(dir).e2e) throw new Error('no e2e script');
       run(dir, 'npm', ['run', 'e2e']);
     });
+  }
+}
+
+// ---------------------------------------------------------------- smaltml, through that smaltkit
+
+if (only.includes('smaltml')) {
+  if (!smaltkitTgz) {
+    results.push({ consumer: 'smaltml', step: 'all', passed: false, seconds: 0, note: 'not run: needs a smaltkit built against this smaltty (--only smaltkit,…)' });
+  } else {
+    let dir;
+    step('smaltml', 'checkout', () => ({ dir, sha: shas.smaltml } = checkout('smaltml')));
+    step('smaltml', 'npm install (smaltkit built against this smaltty)', () => {
+      pointAt(dir, 'smaltkit', smaltkitTgz);
+      run(dir, 'npm', ['install', '--no-audit', '--no-fund']);
+      sameSmaltty(join(dir, 'node_modules', 'smaltkit', 'dist', 'smaltty'));
+    });
+    step('smaltml', 'typecheck', () => run(dir, 'npm', ['run', 'typecheck']));
+    step('smaltml', 'test (its docs examples checked by smaltty)', () => run(dir, 'npm', ['test']));
   }
 }
 
