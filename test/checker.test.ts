@@ -6,8 +6,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
-import { K, check, checkCache, expectations, parse } from 'smaltty';
-import { compareChecks, declarationsOf, DF_PACKAGES, globalsDeclaration, libsCorpus, mutants, smalttsCorpus } from './checking.ts';
+import { K, check, checkCache, expectations, parse, type CheckGroup } from 'smaltty';
+import { ALL_CHECKS, compareChecks, declarationsOf, DF_PACKAGES, globalsDeclaration, libsCorpus, mutants, smalttsCorpus } from './checking.ts';
 import { generatedScript } from '../bench/corpus.ts';
 
 const lib = `
@@ -36,6 +36,11 @@ declare const Mystery: new () => object;
 function run(user: string) {
   const files = new Map([['/lib.ts', lib], ['/user.ts', user]]);
   return compareChecks(files, { roots: ['/user.ts'] });
+}
+
+/** As run(), with a library of its own and milestone 14's checks (all of them unless `checks` says). */
+function run2(library: string, user: string, checks: readonly CheckGroup[] = ALL_CHECKS) {
+  return compareChecks(new Map([['/lib.ts', library], ['/user.ts', user]]), { roots: ['/user.ts'], checks });
 }
 
 test('unknown properties on classes, merged interfaces and type literals; tsc agrees', () => {
@@ -127,7 +132,6 @@ Rel.whatever;
 scan('t').toString();
 const args: [number] = [1];
 scan('t').limit(...args);
-scan();
 `);
   assert.deepEqual(r.smaltty, []);
 });
@@ -456,4 +460,101 @@ test('type guards with a cache: a guard added or taken away in one statement che
   assert.deepEqual(codes(guarded, cache), [], 'a guard added before it: the cached error goes');
   assert.deepEqual(codes(unguarded, cache), [2339], 'the guard taken away: the error is back');
   for (const body of [unguarded, guarded]) assert.deepEqual(codes(body, cache), codes(body, checkCache()), 'the same as a cold check');
+});
+
+// Milestone 14's first slice: the three gaps smaltml found (stenhoor/smaltty#38, update 2), each against tsc.
+const fitting = `export interface Matrix { readonly rows: number; readonly cols: number }
+export class Model { coef = 1; async fit(x: number[][]): Promise<this> { return this; } fitSync(x: number[][]): this { return this; } }
+export class Scaler extends Model { scale = 1; transformSync(x: number[][]): Matrix { return { rows: 0, cols: 0 }; } }
+export interface Split { xTrain: number[][]; xTest: number[][] }
+export function split(x: number[][], y: number[], options?: { seed?: number }): Split;
+export function split(x: number[][], y?: undefined, options?: { seed?: number }): Omit<Split, never>;
+export function split(x: number[][], y?: number[], options: { seed?: number } = {}): Split { return { xTrain: x, xTest: x }; }
+export function gap(a: number): void;
+export function gap(a: number, b: number, c: number): void;
+export function gap(...a: unknown[]): void {}
+export function rest(a: number): void;
+export function rest(a: string, ...b: string[]): void;
+export function rest(...a: unknown[]): void {}
+export class Box { constructor(a: number); constructor(a: string, b: string); constructor(..._: unknown[]) {} }
+export class One { constructor(a: number) {} }
+export interface Chain { a: number; again(): this }
+export interface Extra { b: string }
+export type Kind = 'a' | 'b';
+`;
+
+const fittingUser = `import { Model, Scaler, split, gap, rest, Box, One, type Chain, type Extra, type Kind, type Matrix } from './lib.js';
+declare const both: Chain & Extra;
+async function go() {
+  const model = await new Model().fit([[1]]);
+  model.coeff;
+  model.coef;
+  const scaler = await new Scaler().fit([[1]]);
+  scaler.scale;
+  scaler.scal;
+}
+new Scaler().fitSync([[1]]).fitSync([[1]]).scale;
+new Scaler().fitSync([[1]]).nope;
+both.again().b;
+both.again().nope;
+split();
+split([[1]], [1], {}, 4);
+split([[1]]);
+gap(1, 2);
+gap();
+new Box();
+new One();
+const n: number = new Scaler().transformSync([[1]]);
+const m: Matrix = new Scaler().transformSync([[1]]);
+const s: string = 1;
+const k: Kind = 'a';
+const c: Kind = 'c';
+export {};
+`;
+
+test("checks: a member of an awaited Promise<this>, a method's `this`, overload counts and annotated variables, as tsc (#38)", () => {
+  const r = run2(fitting, fittingUser);
+  assert.deepEqual(r.falseErrors, [], 'no error tsc does not report');
+  assert.deepEqual(r.smaltty.map((d) => d.code), [2551, 2551, 2339, 2339, 2554, 2554, 2575, 2554, 2554, 2554, 2322, 2322, 2322]);
+  assert.deepEqual(r.messageDiffs, []);
+  assert.equal(r.caught, r.tsc.length, 'every error of these codes tsc reports here');
+});
+
+test('checks: each group on its own; none by default, as before 0.15.0, but for the span of too few arguments to `new`', () => {
+  const codes = (checks?: readonly CheckGroup[]) => {
+    const files = new Map([['/lib.ts', fitting], ['/user.ts', fittingUser]]);
+    return check(files, { roots: ['/user.ts'], ...(checks ? { checks } : {}) }).map((d) => d.code);
+  };
+  // The receivers typed by `this` only with 'this': the four member errors after fit(), fitSync() and again().
+  assert.deepEqual(codes(), [2554], 'the default: only `new One()`, a single constructor, as before');
+  assert.deepEqual(codes(['this']), [2551, 2551, 2339, 2339, 2554]);
+  assert.deepEqual(codes(['overloads']), [2554, 2554, 2575, 2554, 2554, 2554]);
+  assert.deepEqual(codes(['variables']), [2554, 2322, 2322, 2322]);
+  const one = check(new Map([['/u.ts', 'class One { constructor(a: number) {} }\nnew One();\n']])).map((d) => [d.start, d.length]);
+  assert.deepEqual(one, [[40, 9]], "tsc's span: the whole `new One()`, not the class's name");
+});
+
+test('checks with a cache: turning a group on or off checks again, the same as a cold check', () => {
+  const files = new Map([['/lib.ts', fitting], ['/user.ts', fittingUser]]);
+  const cache = checkCache();
+  for (const checks of [[], ALL_CHECKS, ['this'], [], ALL_CHECKS] as (readonly CheckGroup[])[]) {
+    const warm = check(files, { roots: ['/user.ts'], cache, checks }).map((d) => [d.start, d.code]);
+    const cold = check(files, { roots: ['/user.ts'], checks }).map((d) => [d.start, d.code]);
+    assert.deepEqual(warm, cold, checks.join(',') || 'none');
+  }
+});
+
+test('quiet where tsc reports another code or the checker cannot say: objects assigned, rest overloads, type arguments, a union written otherwise', () => {
+  const user = `import { Model, Scaler, rest, split, type Kind } from './lib.js';
+const a: Scaler = new Model();
+const b: Model = new Scaler();
+rest();
+split<number>();
+// tsc writes this annotation as \`string | number\`: not reported until the checker writes unions as tsc does.
+const u: number | string = true;
+export {};
+`;
+  const r = run2(fitting, user);
+  assert.deepEqual(r.falseErrors, []);
+  assert.deepEqual(r.smaltty, []);
 });

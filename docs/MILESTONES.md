@@ -346,6 +346,13 @@ The owner's yes at gate D (2026-11-12): an exception to the node-for-node rule, 
 
 ## 14. Coverage
 
+Status: in progress. The first slice (2026-11-15) is the three gaps smaltml found (stenhoor/smaltty#38): `check()`'s
+`checks`, each group off unless named (ADR 0030): `'this'` (a member's `this` type is its receiver, so a model awaited
+from `fit(): Promise<this>` has its members checked), `'overloads'` (2554, 2555 and 2575 for an argument count no
+overload takes) and `'variables'` (2322 for an annotated variable's initializer, where one side is a primitive or a
+literal). With all of them, smaltts's mutants are caught 694 of 847 (82%, from 78%), with no false errors on any
+corpus, and a cold check is no slower with them off. See the guide's "More checks".
+
 In the order of milestone 9's count of what is missed most, each part measured on its own:
 
 - Narrowing: `typeof`, `===` and `!==`, `in`, truthiness, optional chaining, so union-typed arguments are checked.

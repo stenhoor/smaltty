@@ -8,7 +8,8 @@
 // JavaScript API, so `typescript` 6.0.3 stays for the API this file still needs (`globalsDeclaration`,
 // `declarationsOf`), and as a second reference (`reference: 'typescript6'`) to compare the two.
 //
-// `node test/checking.ts <project> [--package=name=path]` runs it on a project's .ts files (smaltts, smaltdf).
+// `node test/checking.ts <project> [--package=name=path] [--checks[=group,…]]` runs it on a project's .ts files
+// (smaltts, smaltdf); `--checks` adds milestone 14's checks (`CheckOptions.checks`), all or the groups named.
 // MSGDIFF=1 prints the errors both report whose messages differ (`messageDiffs`).
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -16,10 +17,10 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { createRequire } from 'node:module';
 import ts from 'typescript';
-import { check, K, parse, type Diagnostic } from 'smaltty';
+import { check, K, parse, type CheckGroup, type Diagnostic } from 'smaltty';
 
 /** The codes smaltty's checker reports. */
-export const CHECKED_CODES = new Set([2339, 2551, 2554, 2555, 2353, 2561, 2345, 2322]);
+export const CHECKED_CODES = new Set([2339, 2551, 2554, 2555, 2575, 2353, 2561, 2345, 2322]);
 
 const require = createRequire(import.meta.url);
 
@@ -86,16 +87,23 @@ export interface CompareOptions {
   roots?: readonly string[];
   packages?: Record<string, string>;
   globals?: readonly string[];
+  /** Milestone 14's checks to run (`CheckOptions.checks`); none by default, as `check()`. */
+  checks?: readonly CheckGroup[];
   /** Default `typescript7`. */
   reference?: Reference;
 }
+
+/** Every group of `CheckOptions.checks`. */
+export const ALL_CHECKS: readonly CheckGroup[] = ['this', 'overloads', 'variables'];
 
 /** Run smaltty and the reference on `files` (path to text). Paths are rooted at `/` (`/p/src/a.ts`) so both agree on them. */
 export function compareChecks(files: ReadonlyMap<string, string>, options: CompareOptions = {}): Comparison {
   const reference = options.reference === 'typescript6' ? typescript6Checks(files, options) : typescript7Checks(files, options);
   const skippedSet = new Set(reference.skipped);
   const roots = (options.roots ?? [...files.keys()]).filter((f) => !skippedSet.has(f));
-  const smaltty = check(files, { roots, ...(options.packages ? { packages: options.packages } : {}), ...(options.globals ? { globals: options.globals } : {}) });
+  // CHECKS=1 runs every comparison with all of milestone 14's checks (`CHECKS=1 node --test test/checker.test.ts`).
+  const checks = options.checks ?? (process.env.CHECKS ? ALL_CHECKS : undefined);
+  const smaltty = check(files, { roots, ...(options.packages ? { packages: options.packages } : {}), ...(options.globals ? { globals: options.globals } : {}), ...(checks ? { checks } : {}) });
   const tsc = reference.errors.filter((d) => CHECKED_CODES.has(d.code));
   const key = (d: { file: string; start: number; code: number }) => `${d.file}:${d.start}:${d.code}`;
   const tscKeys = new Set(tsc.map(key));
@@ -321,9 +329,12 @@ if (import.meta.main) {
     const [name, path] = a.slice('--package='.length).split('=');
     packages[name!] = path!;
   }
+  // --checks: milestone 14's checks too (`CheckOptions.checks`), all of them or the groups named (--checks=this,variables).
+  const flag = args.find((a) => a === '--checks' || a.startsWith('--checks='));
+  const checks = flag === undefined ? undefined : flag === '--checks' ? ALL_CHECKS : (flag.slice('--checks='.length).split(',') as CheckGroup[]);
   const files = projectFiles(dir);
   const start = performance.now();
-  const r = compareChecks(files, { packages });
+  const r = compareChecks(files, { packages, ...(checks ? { checks } : {}) });
   for (const d of r.falseErrors.slice(0, 20)) console.log(`FALSE ERROR ${d.file}:${d.start} ${d.code} ${d.message}`);
   console.log(`${files.size} files${r.skipped.length ? ` (${r.skipped.length} with syntax errors left out)` : ''}; smaltty ${r.smaltty.length} errors (${r.falseErrors.length} false), TypeScript ${TSC7_VERSION} ${r.tsc.length} of codes ${[...CHECKED_CODES].join(', ')}, caught ${r.caught}; ${(performance.now() - start).toFixed(0)} ms with TypeScript`);
   process.exitCode = r.falseErrors.length ? 1 : 0;

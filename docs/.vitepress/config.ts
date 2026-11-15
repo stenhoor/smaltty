@@ -60,6 +60,7 @@ export default defineConfig({
           { text: 'Prepared declarations', link: '/guide/prepared' },
           { text: 'Re-checks', link: '/guide/rechecks' },
           { text: 'Syntax errors', link: '/guide/syntax-errors' },
+          { text: 'More checks', link: '/guide/checks' },
           { text: 'Status', link: '/guide/status' },
         ],
       },
