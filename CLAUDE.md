@@ -53,8 +53,8 @@ NODE_PATH=$(npm root -g) node scripts/downstream.mjs   # the downstream check: t
   [--package=name=path]` compares the checker with TypeScript 7's `tsc` (the reference since milestone 9) on a
   project's files. `node test/tsrs.ts` adds tsrs (a Rust port of TypeScript 7.1 beta's checker) and TypeScript 6.0 to
   that comparison, on the checker tests' mutants; `--misses` counts what smaltty misses, by code.
-- `scripts/downstream.mjs` (run daily by `.github/workflows/downstream.yml`): smaltkit's, smaltts's, smaltui's and
-  smaltnb's own tests, the apps' e2e in Chromium, against this smaltty. A release is tagged only with it green.
+- `scripts/downstream.mjs` (run daily by `.github/workflows/downstream.yml`): smaltkit's, smaltts's, smaltui's,
+  smaltnb's and smaltml's own tests, the apps' e2e in Chromium, against this smaltty. A release is tagged only with it green.
 - `.github/workflows/release.yml` tags a release: run by hand on `main` with the version, after the release commit
   (version in `package.json`, `VERSION` in `src/version.ts`, a dated `CHANGELOG.md` heading) is merged. It checks
   those, runs the tests and the downstream check on that commit, and pushes the annotated tag `v<version>`. Sessions
