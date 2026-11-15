@@ -7,7 +7,7 @@ smaltworks 0.9.0. Each milestone from 9 on ends in a release, tagged only with t
 behaviour, and says how here; a patch release doesn't. Each entry marks what a consumer can see: an API, a default, an
 error code, a message.
 
-## 0.15.0 (unreleased)
+## 0.15.0 (2026-11-15)
 
 Milestone 14, coverage: its first slice, the three gaps smaltml found ([stenhoor/smaltty#38](https://github.com/stenhoor/smaltty/issues/38)).
 
