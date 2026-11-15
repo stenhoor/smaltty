@@ -14,7 +14,10 @@
 // - 2554 and 2555: a call or `new` with an argument count no parameter list accepts;
 // - 2353, and 2561 with a suggestion: an object literal's property that the parameter's type doesn't have;
 // - 2345: an argument whose type certainly can't be assigned to the parameter's, and 2322 for an object literal's
-//   property whose value can't be assigned to the parameter type's property.
+//   property whose value can't be assigned to the parameter type's property;
+// - 2322: a variable's initializer whose type certainly can't be assigned to its annotation (and 2353, 2561, 2322 for
+//   an object literal there, as for an argument);
+// - 2575: a call no overload takes that many arguments for, between the overloads' counts.
 import { F, K, isTypeNode } from './kinds.js';
 import { bind, type Bindings } from './binder.js';
 import { parse } from './parser.js';
@@ -66,7 +69,20 @@ export interface CheckOptions {
    * nothing that uses it is an error. Only for checking: `parse()` and the stripper still stop at the first error.
    */
   readonly syntax?: 'strict' | 'tolerant';
+  /**
+   * Milestone 14's checks, each off unless named (ADR 0030: a new group of errors comes as an option, off by default):
+   * - `'this'`: a member's `this` type is the type it is read from, so a method that returns `this` or `Promise<this>`
+   *   (`const m = await new Model().fit(x)`) gives its receiver, and that receiver's members are checked (2339, 2551).
+   * - `'overloads'`: a call to an overloaded function or method, or a `new` of a class with overloaded constructors, with
+   *   an argument count no overload takes (2554, 2555, and 2575 for a count between two overloads').
+   * - `'variables'`: an annotated variable whose initializer can't be assigned to its annotation (2322 at its name, where
+   *   one side is a primitive or a literal), and an object literal there checked as an argument's is (2353, 2561, 2322).
+   */
+  readonly checks?: readonly CheckGroup[];
 }
+
+/** A group of checks that `check()` runs only when `checks` names it (milestone 14). */
+export type CheckGroup = 'this' | 'overloads' | 'variables';
 
 /** Parsed files kept between checks: a file's tree and names, by path, while its text is the same. */
 export interface CheckCache {
@@ -155,6 +171,8 @@ interface Decl {
 /** Type arguments: a type parameter (by `file:node`) to its type. */
 type Env = ReadonlyMap<string, Type>;
 const NO_ENV: Env = new Map();
+/** The env key a member's `this` type is kept under: the type the member was read from (its receiver). */
+const THIS = 'this';
 
 /** A file's names a type guard or an assertion function is called on (Checker.guardedIn). */
 interface Guarded {
@@ -304,6 +322,8 @@ class Checker {
    * file such a name is unknown: quiet, never a false error (stenhoor/smaltty#38).
    */
   private readonly guarded = new Map<string, Guarded>();
+  /** The milestone 14 checks this check runs (`CheckOptions.checks`). */
+  private readonly groups: ReadonlySet<CheckGroup>;
   /** Parameters of arrow functions typed by where they are passed (`file:node` to type). */
   private readonly contextual = new Map<string, Type>();
   private depth = 0;
@@ -329,6 +349,7 @@ class Checker {
   constructor(files: ReadonlyMap<string, string>, options: CheckOptions, rec?: Recorder) {
     this.files = files;
     this.options = options;
+    this.groups = new Set(options.checks ?? []);
     this.prepared = options.prepared === undefined ? undefined : readPrepared(options.prepared);
     this.rec = rec;
   }
@@ -414,7 +435,46 @@ class Checker {
       const kind = t.kind[n]!;
       if (kind === K.PropertyAccessExpression) this.checkProperty(f, n, out);
       else if (kind === K.CallExpression || kind === K.NewExpression) this.checkCall(f, n, out);
+      else if (kind === K.VariableDeclaration && this.groups.has('variables')) this.checkVariable(f, n, out);
     };
+  }
+
+  /**
+   * A variable with a type annotation and an initializer: tsc's 2322 at its name where the initializer's type certainly
+   * can't be assigned to the annotation's, and an object literal's properties as an argument's are checked.
+   */
+  private checkVariable(f: SourceInfo, n: number, out: Diagnostic[]): void {
+    const t = f.tree;
+    const name = t.first[n]!;
+    if (t.kind[name] !== K.Identifier) return; // a destructuring: not modelled
+    const node = this.annotationOf(t, n);
+    if (node === undefined) return;
+    const init = this.childrenOf(t, n).slice(1).find((c) => !isTypeNode(t.kind[c]!));
+    if (init === undefined) return;
+    const kind = t.kind[init]!;
+    if (kind === K.ArrowFunction || kind === K.FunctionExpression) return;
+    const target = this.typeOfNode(f, node, NO_ENV);
+    if (kind === K.ObjectLiteralExpression) {
+      const d = this.excessProperty(f, init, target);
+      if (d) out.push(d);
+      return;
+    }
+    // The annotation as tsc writes it: a keyword or a name as written (tsc keeps aliases); others aren't reported yet.
+    const written = PRIMITIVE_KINDS.has(t.kind[node]!) || (t.kind[node] === K.TypeReference && t.kind[t.first[node]!] === K.Identifier) ? t.textOf(node) : undefined;
+    if (written === undefined || /\s/.test(written)) return;
+    const type = this.typeOfExpr(f, init);
+    // tsc's code is 2322 where one side is a primitive or a literal; between objects it is often 2739 or 2741 (the
+    // properties missing). And the value's type is written as tsc writes it only where it is a primitive, a literal or
+    // a class or interface by name (an alias's expansion isn't how tsc writes the alias).
+    const simple = (x: Type): boolean => x.k === 'primitive' || x.k === 'keys' || x.k === 'bool' || (x.k === 'union' && x.parts.length > 0 && x.parts.every(simple));
+    const named = (x: Type): boolean => x.k === 'object' && x.decls.every((d) => d.file.tree.kind[d.node] === K.ClassDeclaration || d.file.tree.kind[d.node] === K.InterfaceDeclaration);
+    const writtenAsTsc = type.k === 'primitive' || type.k === 'keys' || type.k === 'bool' || named(type);
+    if (!(simple(type) || simple(target)) || !writtenAsTsc) return;
+    if (this.assignable(type, target) !== 'no') return;
+    const literal = (x: Type): boolean => x.k === 'keys' || x.k === 'bool' || (x.k === 'union' && x.parts.some(literal));
+    const value = literal(target) ? type : widen(type);
+    const start = t.start[name]!;
+    out.push({ file: f.path, start, length: t.end[name]! - start, code: 2322, message: `Type '${this.show(value)}' is not assignable to type '${written}'.` });
   }
 
   /** As tsc: `// @ts-expect-error` and `// @ts-ignore` silence the errors on the line after them. */
@@ -522,7 +582,7 @@ class Checker {
     const o = this.options;
     const f = this.source(path);
     const guards = f ? [...this.guardedIn(f).names].sort().join(',') : '';
-    return { others, at, prepared: o.prepared, packages: JSON.stringify(o.packages ?? {}), globals: JSON.stringify(o.globals ?? []), tolerant: o.syntax === 'tolerant', guards };
+    return { others, at, prepared: o.prepared, packages: JSON.stringify(o.packages ?? {}), globals: JSON.stringify(o.globals ?? []), tolerant: o.syntax === 'tolerant', checks: [...this.groups].sort().join(','), guards };
   }
 
   /** A name a statement's results depend on: an Identifier in `f` resolved by the binder, or not. */
@@ -603,29 +663,52 @@ class Checker {
       if (type.k !== 'function') return;
       signatures = type.signatures;
     }
-    if (signatures.length !== 1) return; // overloads: tsc's errors there are about overload resolution
-    const arity = this.arityOf(signatures[0]!.decl);
-    if (!arity) return;
     const got = args.length;
-    if (got >= arity.min && (arity.max === null || got <= arity.max)) {
-      const env = t.kind[n] === K.CallExpression ? this.resolveCall(f, n).env : NO_ENV;
-      this.checkArguments(signatures[0]!, env, f, args, out);
-      return;
-    }
-    // tsc's spans: excess arguments from the first one too many; too few at the callee's name.
-    let start: number;
-    let end: number;
-    if (arity.max !== null && got > arity.max) {
-      start = t.start[args[arity.max]!]!;
-      end = t.end[args[got - 1]!]!;
+    let arity: { min: number; max: number | null };
+    if (signatures.length === 1) {
+      const one = this.arityOf(signatures[0]!.decl);
+      if (!one) return;
+      arity = one;
+      if (got >= arity.min && (arity.max === null || got <= arity.max)) {
+        const env = t.kind[n] === K.CallExpression ? this.resolveCall(f, n).env : NO_ENV;
+        this.checkArguments(signatures[0]!, env, f, args, out);
+        return;
+      }
     } else {
-      const at = t.kind[callee] === K.PropertyAccessExpression ? t.next[t.first[callee]!]! : callee;
-      start = t.start[at]!;
-      end = t.end[at]!;
+      // Overloads: only tsc's error for an argument count no overload takes. Which overload a call with a count one
+      // takes means is overload resolution (TS2769), not modelled. With type arguments tsc first keeps the overloads
+      // that take that many; with a rest parameter its range reads otherwise: both quiet.
+      if (!this.groups.has('overloads') || !signatures.length || this.childrenOf(t, n).slice(1).some((c) => isTypeNode(t.kind[c]!))) return;
+      const arities = signatures.map((s) => this.arityOf(s.decl));
+      if (arities.some((a) => !a || a.max === null)) return;
+      const known = arities as { min: number; max: number }[];
+      if (known.some((a) => got >= a.min && got <= a.max)) return;
+      const min = Math.min(...known.map((a) => a.min));
+      const max = Math.max(...known.map((a) => a.max));
+      if (min < got && got < max) {
+        // As tsc: the largest least count below the arguments', and the smallest above.
+        const below = Math.max(...known.map((a) => a.min).filter((m) => m < got));
+        const above = Math.min(...known.map((a) => a.min).filter((m) => m > got));
+        if (!Number.isFinite(above)) return;
+        const [start, end] = this.callSpan(t, n);
+        out.push({ file: f.path, start, length: end - start, code: 2575, message: `No overload expects ${got} arguments, but overloads do exist that expect either ${below} or ${above} arguments.` });
+        return;
+      }
+      arity = { min, max };
     }
+    // tsc's spans: excess arguments from the first one too many; too few at the call (callSpan).
+    const [start, end] = arity.max !== null && got > arity.max ? [t.start[args[arity.max]!]!, t.end[args[got - 1]!]!] : this.callSpan(t, n);
     const expected = arity.max === null ? `at least ${arity.min}` : arity.min === arity.max ? `${arity.min}` : `${arity.min}-${arity.max}`;
     const code = arity.max === null ? 2555 : 2554;
     out.push({ file: f.path, start, length: end - start, code, message: `Expected ${expected} arguments, but got ${got}.` });
+  }
+
+  /** Where tsc reports an error about a call as a whole: the callee's name (a method's name), or all of a `new`. */
+  private callSpan(t: Tree, n: number): [number, number] {
+    if (t.kind[n] === K.NewExpression) return [t.start[n]!, t.end[n]!];
+    const callee = t.first[n]!;
+    const at = t.kind[callee] === K.PropertyAccessExpression ? t.next[t.first[callee]!]! : callee;
+    return [t.start[at]!, t.end[at]!];
   }
 
   /** A call's argument nodes, or undefined when one is spread (its count isn't known). */
@@ -1669,6 +1752,9 @@ class Checker {
     switch (kind) {
       case K.NeverKeyword:
         return { k: 'union', parts: [] };
+      case K.ThisType:
+        // The receiver a member was read from (`fit(): Promise<this>` on a subclass is the subclass); unknown elsewhere.
+        return env.get(THIS) ?? UNKNOWN;
       case K.LiteralType: {
         const lit = t.first[n]!;
         switch (t.kind[lit]) {
@@ -1920,12 +2006,17 @@ class Checker {
     return this.augmentations.get(path) ?? [];
   }
 
-  /** A type's properties, or undefined when it has none the checker knows (unknown, primitives, functions). */
-  private propsOf(type: Type): Props | undefined {
+  /**
+   * A type's properties, or undefined when it has none the checker knows (unknown, primitives, functions). `receiver`
+   * is what `this` means in them (with `checks: ['this']`): the type itself, or the intersection it is in.
+   */
+  private propsOf(type: Type, receiver: Type = type): Props | undefined {
     switch (type.k) {
       case 'object': {
         const m = this.membersOf(type);
-        const names = new Map([...m.byName].map(([k, decls]) => [k, () => this.memberOfDecls(decls, type.env)] as const));
+        let env: Env | undefined;
+        const withThis = () => (env ??= this.groups.has('this') ? new Map(type.env).set(THIS, receiver) : type.env);
+        const names = new Map([...m.byName].map(([k, decls]) => [k, () => this.memberOfDecls(decls, withThis())] as const));
         return { names, open: m.open };
       }
       case 'record':
@@ -1947,7 +2038,7 @@ class Checker {
         const names = new Map<string, () => Type>();
         let open = false;
         for (const p of type.parts) {
-          const props = this.propsOf(p);
+          const props = this.propsOf(p, receiver);
           if (!props) {
             open = true;
             continue;
@@ -2209,6 +2300,8 @@ interface World {
   readonly globals: string;
   /** Files were read by the tolerant parse: another file with a syntax error declares what its other statements do. */
   readonly tolerant: boolean;
+  /** The milestone 14 checks run (`CheckOptions.checks`), sorted: each changes what a statement finds. */
+  readonly checks: string;
   /**
    * The names a type guard or an assertion function is called on in the root (guardedIn), which are unknown wherever
    * they are read: a guard added in one statement changes what another one finds, so they are checked again.
@@ -2217,7 +2310,7 @@ interface World {
 }
 
 function sameWorld(a: World, b: World): boolean {
-  if (a.at !== b.at || a.prepared !== b.prepared || a.packages !== b.packages || a.globals !== b.globals || a.tolerant !== b.tolerant || a.guards !== b.guards || a.others.length !== b.others.length) return false;
+  if (a.at !== b.at || a.prepared !== b.prepared || a.packages !== b.packages || a.globals !== b.globals || a.tolerant !== b.tolerant || a.checks !== b.checks || a.guards !== b.guards || a.others.length !== b.others.length) return false;
   for (let i = 0; i < a.others.length; i++) {
     const x = a.others[i]!;
     const y = b.others[i]!;

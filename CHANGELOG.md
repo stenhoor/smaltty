@@ -7,6 +7,27 @@ smaltworks 0.9.0. Each milestone from 9 on ends in a release, tagged only with t
 behaviour, and says how here; a patch release doesn't. Each entry marks what a consumer can see: an API, a default, an
 error code, a message.
 
+## 0.15.0 (unreleased)
+
+Milestone 14, coverage: its first slice, the three gaps smaltml found ([stenhoor/smaltty#38](https://github.com/stenhoor/smaltty/issues/38)).
+
+### Added
+
+- `check()`'s `checks`, milestone 14's groups of checks, each off unless named (ADR 0030), and the type `CheckGroup`.
+  See the guide's "More checks".
+  - `'this'`: a member's `this` type is its receiver, so `const m = await new Model().fit(x); m.coeff` is TS2551
+    ("Did you mean 'coef'?"), as is a misspelt member after a method that returns `this`.
+  - `'overloads'`: an argument count no overload takes is TS2554 or TS2555 with the overloads' range
+    (`Expected 1-3 arguments, but got 0.`), or TS2575 for a count between two overloads'.
+  - `'variables'`: an annotated variable whose initializer can't be assigned to it is TS2322 at its name
+    (`const n: number = scaler.transformSync(x)`: `Type 'Matrix' is not assignable to type 'number'.`), and an object
+    literal there is checked as an argument's (TS2353, TS2561, TS2322).
+
+### Fixed
+
+- Too few arguments to `new` (TS2554, TS2555) are reported on the whole `new` expression, as tsc does, not on the class's
+  name.
+
 ## 0.14.1 (2026-11-15)
 
 A fix: no false errors where a type guard or an assertion function narrows ([stenhoor/smaltty#38](https://github.com/stenhoor/smaltty/issues/38)).
