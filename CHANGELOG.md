@@ -34,6 +34,15 @@ Milestone 14, coverage: its first slice, the three gaps smaltml found ([stenhoor
   - `filter`, `find` and `findLast` gave the array's own element type where the callback narrows it. Examples are a
     guard written as one (`(v): v is number => v !== null`), one passed by name, and, as TypeScript 5.5 infers guards,
     an arrow on an array of a union or one whose body narrows its parameter. Their result is unknown there, so quiet.
+- `check()` ran out of memory on smaltdb's engine (`src/engine`, 75 files). A recursive alias whose union has generic
+  members (`type Expr = Lit | Call<Expr> | Cast<Expr> | …`) was expanded again inside each member, which grows
+  exponentially. Now an alias met again while it is being expanded is unknown there. The engine checks in about a second.
+- Further false errors that this showed on smaltdb's engine and smaltfl's app, all from narrowing the checker doesn't
+  follow, are now quiet:
+  - A name tested with `instanceof` (`while (node instanceof Filter) node.expr`) is unknown in its file, as a name a
+    type guard is called on is (0.14.1), and TS2339 is no longer reported on it.
+  - A union of string literals passed where only some of them fit (`if (a === 'export') return; log(a)`) is no longer
+    TS2345, as a union's members weren't before. A literal none of whose members fit still is.
 
 ## 0.14.1 (2026-11-15)
 

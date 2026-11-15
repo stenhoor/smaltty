@@ -175,7 +175,7 @@ const NO_ENV: Env = new Map();
 /** The env key a member's `this` type is kept under: the type the member was read from (its receiver). */
 const THIS = 'this';
 
-/** A file's names a type guard or an assertion function is called on (Checker.guardedIn). */
+/** A file's names a type guard or an assertion function is called on, or `instanceof` tests (Checker.guardedIn). */
 interface Guarded {
   /** Their declarations (`keyOf`). */
   readonly decls: ReadonlySet<string>;
@@ -319,8 +319,8 @@ class Checker {
   private readonly calls = new Map<string, Resolved>();
   /**
    * Per file: the declarations (`keyOf`) a type guard (`x is T`) or an assertion function (`asserts x is T`) is called
-   * on, and the argument nodes of those calls. The checker doesn't follow the narrowing they make, so elsewhere in the
-   * file such a name is unknown: quiet, never a false error (stenhoor/smaltty#38).
+   * on, or `instanceof` tests, and the nodes tested. The checker doesn't follow the narrowing they make, so elsewhere in
+   * the file such a name is unknown: quiet, never a false error (stenhoor/smaltty#38; smaltdb's engine for instanceof).
    */
   private readonly guarded = new Map<string, Guarded>();
   /** The milestone 14 checks this check runs (`CheckOptions.checks`). */
@@ -344,6 +344,8 @@ class Checker {
   private hits = 0;
   /** Members being collected: a class or interface among its own bases. */
   private readonly building = new Set<string>();
+  /** Type aliases being expanded (typeOfDecl), so a recursive one ends where it meets itself. */
+  private readonly expanding = new Set<string>();
   /** What each statement depends on, where results are kept per statement (a cache with `statements`). */
   private readonly rec: Recorder | undefined;
 
@@ -820,7 +822,13 @@ class Checker {
           if (to.kind === undefined) return 'maybe';
           return to.kind === fromKind ? 'yes' : 'no';
         case 'keys':
-          if (from.k === 'keys') return [...from.names].every((n) => to.names.has(n)) ? 'yes' : 'no';
+          if (from.k === 'keys') {
+            const fits = [...from.names].filter((n) => to.names.has(n)).length;
+            if (fits === from.names.size) return 'yes';
+            // Several literals are a union: narrowed where it is read (`if (a === 'x') return;`), which the checker
+            // doesn't follow, it may be only the ones that fit. As for a union above, one that fails is enough nested.
+            return nested || fits === 0 ? 'no' : 'maybe';
+          }
           return 'no';
         case 'bool':
           if (from.k === 'bool') return from.value === to.value ? 'yes' : 'no';
@@ -1277,7 +1285,20 @@ class Checker {
       while (t.kind[n] === K.PropertyAccessExpression || t.kind[n] === K.ParenthesizedExpression || t.kind[n] === K.NonNullExpression) n = t.first[n]!;
       return t.kind[n] === K.Identifier ? n : undefined;
     };
+    const guard = (id: number | undefined): void => {
+      if (id === undefined) return;
+      const d = this.declarationOf(f, id);
+      if (!d) return;
+      decls.add(keyOf(d));
+      args.add(id);
+      names.add(t.textOf(id));
+    };
     for (let call = 1; call < t.count; call++) {
+      // `x instanceof C` narrows `x` (or the name a property chain starts from) as a guard does: not followed either.
+      if (t.kind[call] === K.BinaryExpression && t.data[call] === Tok.Instanceof) {
+        guard(rootName(t.first[call]!));
+        continue;
+      }
       if (t.kind[call] !== K.CallExpression) continue;
       const callee = t.first[call]!;
       // A function called by its name; its declaration found without typing anything (a type would be computed while
@@ -1296,13 +1317,7 @@ class Checker {
       if (st.kind[subject] !== K.Identifier) continue; // `this is T`: not followed
       const at = this.paramsOf(fn).findIndex((p) => st.kind[st.first[p]!] === K.Identifier && st.textOf(st.first[p]!) === st.textOf(subject));
       const arg = at < 0 ? undefined : callArgs[at];
-      const id = arg === undefined ? undefined : rootName(arg);
-      if (id === undefined) continue;
-      const d = this.declarationOf(f, id);
-      if (!d) continue;
-      decls.add(keyOf(d));
-      args.add(id);
-      names.add(t.textOf(id));
+      guard(arg === undefined ? undefined : rootName(arg));
     }
     return result;
   }
@@ -1877,10 +1892,23 @@ class Checker {
       case K.InterfaceDeclaration:
         return this.instanceOf(d, args);
       case K.TypeAliasDeclaration: {
+        // An alias met again while it is expanded (`type E = Lit | Call<E>`) is unknown there: expanded eagerly, each
+        // generic member would expand it again, and a union of several grows exponentially, not just deep.
+        const key = keyOf(d);
+        if (this.expanding.has(key)) {
+          this.hits++;
+          return UNKNOWN;
+        }
         const parts = this.childrenOf(t, d.node);
         const aliasEnv = this.envFor(d, args);
         const type = parts.slice(1).reverse().find((c) => isTypeNode(t.kind[c]!) && t.kind[c] !== K.TypeParameter);
-        return type !== undefined ? this.typeOfNode(d.file, type, aliasEnv) : UNKNOWN;
+        if (type === undefined) return UNKNOWN;
+        this.expanding.add(key);
+        try {
+          return this.typeOfNode(d.file, type, aliasEnv);
+        } finally {
+          this.expanding.delete(key);
+        }
       }
       case K.ImportSpecifier:
         return this.imported(d, 'type', args);
@@ -2347,7 +2375,7 @@ interface World {
   /** The milestone 14 checks run (`CheckOptions.checks`), sorted: each changes what a statement finds. */
   readonly checks: string;
   /**
-   * The names a type guard or an assertion function is called on in the root (guardedIn), which are unknown wherever
+   * The names a type guard or an assertion function is called on in the root, or `instanceof` tests (guardedIn), unknown wherever
    * they are read: a guard added in one statement changes what another one finds, so they are checked again.
    */
   readonly guards: string;
