@@ -98,6 +98,14 @@ NODE_PATH=$(npm root -g) node scripts/downstream.mjs   # the downstream check: t
 - **Ask before adding outside code.** Ask the owner, and wait for a yes, before adding a package (a dependency of any
   kind, or a pin in `packed.json`), copying or bundling in someone else's code, or loading code from another site at run
   time (a CDN such as jsDelivr). Say what it is, its licence and size, what it's for, and why our own code can't do it.
+- **Facts only.** Don't tell the owner something you haven't confirmed. A fact comes from the code, a command's
+  output, a document you read in this session, or GitHub itself; say which when it isn't obvious. Label everything
+  else as an assumption, in those words, with what would confirm it, and check before asserting when checking is
+  cheap. Correct a wrong fact where you wrote it, and say so.
+- **Watch your PRs to the merge.** A PR you open is yours until it is merged or closed: subscribe to its activity, fix
+  CI failures and answer reviews as they arrive, then do what the merge unblocks and stop watching. Watching is
+  event-driven: never poll, sleep or schedule checks for it. Merging stays with the owner.
+  (Both rules: smaltworks' [session rules](https://github.com/stenhoor/smaltworks/blob/main/context/session-rules.md).)
 
 ## Brand
 
