@@ -332,6 +332,46 @@ export {};
   assert.equal(r.caught, r.tsc.length);
 });
 
+test("a recursive alias through generic members ends where it meets itself (smaltdb's engine ran out of memory)", () => {
+  // Each generic member expanded the alias again: six members, as smaltdb's PlanExpr has, grew as 6^60 before.
+  const members = ['A', 'B', 'C', 'D', 'E', 'F'];
+  const lib = `${members.map((m) => `export interface ${m}<T> { k: '${m.toLowerCase()}'; arg: T }`).join('\n')}
+export interface Lit { k: 'lit'; value: number }
+export type Expr = Lit | ${members.map((m) => `${m}<Expr>`).join(' | ')};
+export interface Holder { e: Expr; lit: Lit }
+`;
+  const start = performance.now();
+  const r = compareChecks(new Map([['/lib.ts', lib], ['/user.ts', `import type { Expr, Holder } from './lib.js';
+declare const e: Expr; declare const h: Holder;
+e.k;
+h.lit.valeu;
+h.nope;
+export {};
+`]]), { roots: ['/user.ts'] });
+  assert.deepEqual(r.falseErrors, []);
+  assert.deepEqual(r.smaltty.map((d) => d.code), [2551, 2339]);
+  assert.ok(performance.now() - start < 20_000, 'it ends');
+});
+
+test('instanceof and literal unions narrowed by an early return: quiet, as the checker does not follow them (smaltdb, smaltfl)', () => {
+  const r = compareChecks(new Map([['/user.ts', `class Op { kind = 'op' } class Filter extends Op { expr = 1; child: Op = new Op() }
+declare const src: Op;
+let node: Op = src;
+while (node instanceof Filter) { node.expr; node = node.child; }
+declare const st: Op;
+const n = st instanceof Filter ? st.expr : 0;
+type Act = 'a' | 'b' | 'c'; type Logged = 'a' | 'b';
+function log(a: Logged) { return a; }
+function act(a: Act) { if (a === 'c') return null; return log(a); }
+declare const other: Op;
+other.nope;
+log('c');
+export {};
+`]]), { roots: ['/user.ts'] });
+  assert.deepEqual(r.falseErrors, []);
+  assert.deepEqual(r.smaltty.map((d) => d.code), [2339, 2345], 'a name nothing narrows, and a literal no member of the union fits, as before');
+});
+
 test('the built-in types: arrays, strings, numbers, maps, sets, promises, Math and JSON', () => {
   const r = compareChecks(new Map([['/user.ts', `const xs = [1, 2, 3];
 xs.pussh(4);
