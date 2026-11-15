@@ -156,6 +156,16 @@ interface Decl {
 type Env = ReadonlyMap<string, Type>;
 const NO_ENV: Env = new Map();
 
+/** A file's names a type guard or an assertion function is called on (Checker.guardedIn). */
+interface Guarded {
+  /** Their declarations (`keyOf`). */
+  readonly decls: ReadonlySet<string>;
+  /** The guard calls' arguments themselves, which are read as declared. */
+  readonly args: ReadonlySet<number>;
+  /** Their names' text, for the cache (World.guards). */
+  readonly names: ReadonlySet<string>;
+}
+
 /** A signature: a declaration with parameters, and the type arguments of the type it belongs to. */
 interface Sig {
   readonly decl: Decl;
@@ -288,6 +298,12 @@ class Checker {
   private readonly typing = new Set<string>();
   private readonly exprTypes = new Map<string, Type>();
   private readonly calls = new Map<string, Resolved>();
+  /**
+   * Per file: the declarations (`keyOf`) a type guard (`x is T`) or an assertion function (`asserts x is T`) is called
+   * on, and the argument nodes of those calls. The checker doesn't follow the narrowing they make, so elsewhere in the
+   * file such a name is unknown: quiet, never a false error (stenhoor/smaltty#38).
+   */
+  private readonly guarded = new Map<string, Guarded>();
   /** Parameters of arrow functions typed by where they are passed (`file:node` to type). */
   private readonly contextual = new Map<string, Type>();
   private depth = 0;
@@ -504,7 +520,9 @@ class Checker {
       else others.push([p, text]);
     }
     const o = this.options;
-    return { others, at, prepared: o.prepared, packages: JSON.stringify(o.packages ?? {}), globals: JSON.stringify(o.globals ?? []), tolerant: o.syntax === 'tolerant' };
+    const f = this.source(path);
+    const guards = f ? [...this.guardedIn(f).names].sort().join(',') : '';
+    return { others, at, prepared: o.prepared, packages: JSON.stringify(o.packages ?? {}), globals: JSON.stringify(o.globals ?? []), tolerant: o.syntax === 'tolerant', guards };
   }
 
   /** A name a statement's results depend on: an Identifier in `f` resolved by the binder, or not. */
@@ -1139,10 +1157,77 @@ class Checker {
   /** The type of a value a name refers to. */
   private valueOfName(f: SourceInfo, name: number): Type {
     const decl = this.declarationOf(f, name);
-    if (decl) return this.valueOfDecl(decl);
+    if (decl) {
+      const g = this.guardedIn(f);
+      if (g.decls.size && !g.args.has(name) && g.decls.has(keyOf(decl))) {
+        // Narrowed by a type guard or an assertion function somewhere in the file, which the checker doesn't follow:
+        // unknown. What it reads is the whole file, where the guard may be in another statement.
+        if (this.rec !== undefined) this.wholeFile(f);
+        return UNKNOWN;
+      }
+      return this.valueOfDecl(decl);
+    }
     if (f.path === BUILTINS_PATH) return UNKNOWN;
     const global = this.globalDecl(f.tree.textOf(name));
     return global ? this.valueOfDecl(global) : this.builtinValue(f.tree.textOf(name));
+  }
+
+  /**
+   * The names `f` calls a type guard or an assertion function on: each call whose callee's signatures return a type
+   * predicate (`x is T`, `asserts x is T`), with the declaration of the name passed for `x` (the leftmost name of
+   * `a.b.c`). Computed once per file; while it is computed, nothing is taken as guarded.
+   */
+  private guardedIn(f: SourceInfo): Guarded {
+    const known = this.guarded.get(f.path);
+    if (known) return known;
+    const decls = new Set<string>();
+    const args = new Set<number>();
+    const names = new Set<string>();
+    const result = { decls, args, names };
+    this.guarded.set(f.path, result);
+    const t = f.tree;
+    const rootName = (n: number): number | undefined => {
+      while (t.kind[n] === K.PropertyAccessExpression || t.kind[n] === K.ParenthesizedExpression || t.kind[n] === K.NonNullExpression) n = t.first[n]!;
+      return t.kind[n] === K.Identifier ? n : undefined;
+    };
+    for (let call = 1; call < t.count; call++) {
+      if (t.kind[call] !== K.CallExpression) continue;
+      const callee = t.first[call]!;
+      // A function called by its name; its declaration found without typing anything (a type would be computed while
+      // the name being checked is), imports followed. Methods (`a.isP(m)`) aren't followed.
+      if (t.kind[callee] !== K.Identifier) continue;
+      const callArgs = this.argumentsOf(t, call);
+      if (!callArgs || !callArgs.some((a) => rootName(a) !== undefined)) continue;
+      const local = this.declarationOf(f, callee) ?? this.globalDecl(t.textOf(callee));
+      const target = local && this.targetOf(local);
+      const fn = target && this.guardFunction(target);
+      if (!fn) continue;
+      const st = fn.file.tree;
+      const ret = this.returnNodeOf(fn);
+      if (ret === undefined || st.kind[ret] !== K.TypePredicate) continue;
+      const subject = st.first[ret]!;
+      if (st.kind[subject] !== K.Identifier) continue; // `this is T`: not followed
+      const at = this.paramsOf(fn).findIndex((p) => st.kind[st.first[p]!] === K.Identifier && st.textOf(st.first[p]!) === st.textOf(subject));
+      const arg = at < 0 ? undefined : callArgs[at];
+      const id = arg === undefined ? undefined : rootName(arg);
+      if (id === undefined) continue;
+      const d = this.declarationOf(f, id);
+      if (!d) continue;
+      decls.add(keyOf(d));
+      args.add(id);
+      names.add(t.textOf(id));
+    }
+    return result;
+  }
+
+  /** A function's declaration with its signature: a function, or a variable whose value is an arrow or function. */
+  private guardFunction(d: Decl): Decl | undefined {
+    const t = d.file.tree;
+    const kind = t.kind[d.node];
+    if (kind === K.FunctionDeclaration) return d;
+    if (kind !== K.VariableDeclaration) return undefined;
+    const init = this.childrenOf(t, d.node).find((c) => t.kind[c] === K.ArrowFunction || t.kind[c] === K.FunctionExpression);
+    return init === undefined ? undefined : { file: d.file, node: init };
   }
 
   /** A name the `globals` modules export, by name: its declaration, re-exports followed. */
@@ -2124,10 +2209,15 @@ interface World {
   readonly globals: string;
   /** Files were read by the tolerant parse: another file with a syntax error declares what its other statements do. */
   readonly tolerant: boolean;
+  /**
+   * The names a type guard or an assertion function is called on in the root (guardedIn), which are unknown wherever
+   * they are read: a guard added in one statement changes what another one finds, so they are checked again.
+   */
+  readonly guards: string;
 }
 
 function sameWorld(a: World, b: World): boolean {
-  if (a.at !== b.at || a.prepared !== b.prepared || a.packages !== b.packages || a.globals !== b.globals || a.tolerant !== b.tolerant || a.others.length !== b.others.length) return false;
+  if (a.at !== b.at || a.prepared !== b.prepared || a.packages !== b.packages || a.globals !== b.globals || a.tolerant !== b.tolerant || a.guards !== b.guards || a.others.length !== b.others.length) return false;
   for (let i = 0; i < a.others.length; i++) {
     const x = a.others[i]!;
     const y = b.others[i]!;

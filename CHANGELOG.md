@@ -7,6 +7,20 @@ smaltworks 0.9.0. Each milestone from 9 on ends in a release, tagged only with t
 behaviour, and says how here; a patch release doesn't. Each entry marks what a consumer can see: an API, a default, an
 error code, a message.
 
+## 0.14.1 (unreleased)
+
+A fix: no false errors where a type guard or an assertion function narrows ([stenhoor/smaltty#38](https://github.com/stenhoor/smaltty/issues/38)).
+
+### Fixed
+
+- A name passed to a type guard (`x is T`) or an assertion function (`asserts x is T`) called by its name, its own or
+  imported, was read as its declared type everywhere, so `if (isP(m)) m.predict()` and its other forms (an early
+  `throw`, `return` or `never` call, `?:`, `&&`, an assertion call) reported TS2339 where tsc reports nothing. The
+  checker doesn't follow that narrowing yet, so such a name is now unknown in the file it is guarded in, and quiet:
+  no false errors, as the gradual guarantee says. Following the narrowing, and so catching errors after a guard too,
+  is milestone 14's. A name no guard is called on is checked as before.
+- With `checkCache()`, a guard added in one statement, or taken away, checks the root's other statements again.
+
 ## 0.14.0 (2026-11-13)
 
 Milestone 13: checking through syntax errors ([ADR 0029](docs/adr/0029-after-the-checker-trial.md), decision 4). An
