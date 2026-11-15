@@ -25,6 +25,7 @@ import type { Tree } from './tree.js';
 import { BUILTINS, BUILTINS_PATH } from './builtins.js';
 import { BUILTINS_PREPARED } from './builtins-prepared.js';
 import { readPrepared, type PreparedFiles } from './prepared.js';
+import { T as Tok } from './tokens.js';
 import { parseTolerant, type SyntaxProblem } from './tolerant.js';
 
 export interface Diagnostic {
@@ -452,7 +453,7 @@ class Checker {
     const init = this.childrenOf(t, n).slice(1).find((c) => !isTypeNode(t.kind[c]!));
     if (init === undefined) return;
     const kind = t.kind[init]!;
-    if (kind === K.ArrowFunction || kind === K.FunctionExpression) return;
+    if (kind === K.ArrowFunction || kind === K.FunctionExpression || kind === K.ArrayLiteralExpression) return;
     const target = this.typeOfNode(f, node, NO_ENV);
     if (kind === K.ObjectLiteralExpression) {
       const d = this.excessProperty(f, init, target);
@@ -762,7 +763,8 @@ class Checker {
         target = target.element;
       }
       const kind = t.kind[arg]!;
-      if (kind === K.ArrowFunction || kind === K.FunctionExpression) continue;
+      // An array literal tsc reports at its elements (it elaborates into them): not modelled, so quiet.
+      if (kind === K.ArrowFunction || kind === K.FunctionExpression || kind === K.ArrayLiteralExpression) continue;
       if (kind === K.ObjectLiteralExpression) {
         // Values whose types come from the signature's own type parameters depend on inference the checker may not
         // follow all the way: only the keys are checked there.
@@ -1058,7 +1060,8 @@ class Checker {
       const p = byName.get(key);
       if (p === undefined) continue;
       const value = t.next[t.first[p]!]!;
-      if (t.kind[value] === K.ObjectLiteralExpression || t.kind[value] === K.ArrowFunction || t.kind[value] === K.FunctionExpression) continue;
+      // An array literal tsc reports at its elements (it elaborates into them): not modelled, so quiet.
+      if (t.kind[value] === K.ObjectLiteralExpression || t.kind[value] === K.ArrayLiteralExpression || t.kind[value] === K.ArrowFunction || t.kind[value] === K.FunctionExpression) continue;
       const from = this.typeOfExpr(f, value);
       const to = member();
       if (this.assignable(from, to) === 'no') {
@@ -1154,7 +1157,8 @@ class Checker {
         const pk = t.kind[parent];
         const free = (pk === K.VariableDeclaration && !this.annotationOf(t, parent)) || (pk === K.PropertyAccessExpression && t.first[parent] === n);
         const types = elements.map((e) => (free ? widen(this.typeOfExpr(f, e)) : this.typeOfExpr(f, e)));
-        const distinct = types.filter((x, i) => types.findIndex((y) => sameType(x, y)) === i);
+        // Repeats left out: the same primitive twice, or the same type (an object element is only ever itself).
+        const distinct = types.filter((x, i) => types.findIndex((y) => y === x || sameType(x, y)) === i);
         return { k: 'array', element: distinct.length === 1 ? distinct[0]! : union(distinct) };
 
       }
@@ -1487,7 +1491,47 @@ class Checker {
         env = this.withInferred(sig, vars, inferred);
       }
     }
+    if (this.mayNarrowElements(f, call, sig, args)) return { sig, env, type: UNKNOWN };
     return { sig, env, type: this.returnOf({ decl: sig.decl, env }) };
+  }
+
+  /**
+   * An array's `filter`, `find` or `findLast` whose callback may be a type guard, so that tsc's result is narrower than
+   * the built-in signature's `T[]` or `T | undefined`: a callback written as one (`(v): v is number => …`), one passed
+   * by name, or, as tsc infers guards (TypeScript 5.5), an arrow with no return type on an array of a union, or whose
+   * body narrows its parameter itself (`instanceof`, `in`, passed to a call, a method called on it). The result is then
+   * unknown, and quiet, until the checker follows those guards.
+   */
+  private mayNarrowElements(f: SourceInfo, call: number, sig: Sig, args: readonly number[]): boolean {
+    const d = sig.decl;
+    if (d.file.path !== BUILTINS_PATH || d.file.tree.kind[d.node] !== K.MethodSignature) return false;
+    const method = d.file.tree.textOf(d.file.tree.first[d.node]!);
+    if (method !== 'filter' && method !== 'find' && method !== 'findLast') return false;
+    const t = f.tree;
+    const callback = args[0];
+    if (callback === undefined) return false;
+    if (t.kind[callback] !== K.ArrowFunction && t.kind[callback] !== K.FunctionExpression) return true;
+    const ret = this.returnNodeOf({ file: f, node: callback });
+    if (ret !== undefined) return t.kind[ret] === K.TypePredicate;
+    const param = this.paramsOf({ file: f, node: callback })[0];
+    if (param === undefined || t.kind[t.first[param]!] !== K.Identifier) return false;
+    const callee = t.first[call]!;
+    const receiver = t.kind[callee] === K.PropertyAccessExpression ? this.typeOfExpr(f, t.first[callee]!) : UNKNOWN;
+    if (receiver.k !== 'array' || receiver.element.k === 'union' || receiver.element.k === 'unknown') return true;
+    const name = t.textOf(t.first[param]!);
+    const isParam = (n: number | undefined) => n !== undefined && t.kind[n] === K.Identifier && t.textOf(n) === name;
+    let narrows = false;
+    t.walk(callback, (n) => {
+      if (narrows) return;
+      const kind = t.kind[n];
+      if (kind === K.BinaryExpression && (t.data[n] === Tok.Instanceof || t.data[n] === Tok.In)) narrows = true;
+      else if (kind === K.CallExpression) {
+        const fn = t.first[n]!;
+        if (t.kind[fn] === K.PropertyAccessExpression && isParam(t.first[fn])) narrows = true; // `this is` guards
+        for (let a = t.next[fn]!; a && !narrows; a = t.next[a]!) if (isParam(a)) narrows = true;
+      }
+    });
+    return narrows;
   }
 
   /** The signature's env with its own type parameters: inferred, else their defaults, else unknown. */
