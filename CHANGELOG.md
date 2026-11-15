@@ -7,7 +7,7 @@ smaltworks 0.9.0. Each milestone from 9 on ends in a release, tagged only with t
 behaviour, and says how here; a patch release doesn't. Each entry marks what a consumer can see: an API, a default, an
 error code, a message.
 
-## 0.14.1 (unreleased)
+## 0.14.1 (2026-11-15)
 
 A fix: no false errors where a type guard or an assertion function narrows ([stenhoor/smaltty#38](https://github.com/stenhoor/smaltty/issues/38)).
 
@@ -20,6 +20,11 @@ A fix: no false errors where a type guard or an assertion function narrows ([ste
   no false errors, as the gradual guarantee says. Following the narrowing, and so catching errors after a guard too,
   is milestone 14's. A name no guard is called on is checked as before.
 - With `checkCache()`, a guard added in one statement, or taken away, checks the root's other statements again.
+
+### Release checks
+
+- The downstream check runs smaltml's tests too (its docs examples are checked by smaltty through smaltkit), so a
+  release is tagged only with them green.
 
 ## 0.14.0 (2026-11-13)
 
