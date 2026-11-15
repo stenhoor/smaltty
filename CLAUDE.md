@@ -11,7 +11,7 @@ docs/adr/0029-after-the-checker-trial.md, with how they reach consumers in
 docs/adr/0030-changing-smaltty-without-breaking-its-consumers.md; milestone 10 (entry points and size) is released as
 0.11.0 and milestone 11 (prepared declarations) as 0.12.0; milestone 12 (incremental re-checks) as
 0.13.0; milestone 13 (checking through syntax errors, `check()`'s `syntax: 'tolerant'`) as 0.14.0, and
-milestone 14 (coverage) is next. See
+milestone 14 (coverage) is in progress: its first slice, `check()`'s `checks`, is released as 0.15.0. See
 docs/MILESTONES.md.
 Several Claude Code sessions work on the smalt repos in parallel and cannot see each other: this file is the shared
 starting point, and its working rules match smaltdb's `CLAUDE.md`.
