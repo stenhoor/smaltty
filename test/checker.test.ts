@@ -407,3 +407,53 @@ test('globals: a name declared in the file comes first; types from the globals m
   assert.deepEqual(errors, ["Property 'hed' does not exist on type 'Frame'. Did you mean 'head'?", "Property 'tail' does not exist on type 'Frame'."]);
   assert.deepEqual(check(files, { roots: ['/user.ts'] }), []);
 });
+
+test('type guards and assertion functions: no false errors where they narrow (stenhoor/smaltty#38)', () => {
+  // The issue's cases, in one file and with the guards imported: tsc reports nothing in any of them.
+  const lib = `export interface M { kind: string }
+export interface P extends M { predict(): number }
+export function isP(m: M): m is P { return 'predict' in m; }
+export const isQ = (m: M): m is P => 'predict' in m;
+export function fail(msg: string): never { throw new Error(msg); }
+export function assertP(x: M): asserts x is P { if (!isP(x)) throw new Error(); }
+export declare const m: M;
+`;
+  const forms = [
+    `if (isP(m)) { m.predict(); }`,
+    `function a() { if (!isP(m)) throw new Error('x'); return m.predict(); }`,
+    `function b() { if (!isP(m)) return 0; return m.predict(); }`,
+    `function c() { if (!isP(m)) fail('x'); return m.predict(); }`,
+    `const d = isP(m) ? m.predict() : 0;`,
+    `const e = isP(m) && m.predict();`,
+    `function f() { assertP(m); return m.predict(); }`,
+    `if (isQ(m)) { m.predict(); }`,
+    `const h = { inner: m }; if (isP(h.inner)) { h.inner.predict(); }`,
+  ];
+  for (const form of forms) {
+    const imported = new Map([['/p/lib.ts', lib], ['/p/u.ts', `import { type M, type P, isP, isQ, fail, assertP, m } from './lib.js';\n${form}\n`]]);
+    const r = compareChecks(imported, { roots: ['/p/u.ts'] });
+    assert.deepEqual(r.falseErrors, [], form);
+    assert.equal(r.tsc.length, 0, `tsc on: ${form}`);
+    const local = new Map([['/p/one.ts', `${lib.replace('export declare const m: M;', 'declare const m: M;')}\n${form}\nexport {};\n`]]);
+    assert.deepEqual(compareChecks(local, { roots: ['/p/one.ts'] }).falseErrors, [], `in one file: ${form}`);
+  }
+  // A name no guard is called on is still checked, in the same file as a guarded one.
+  const other = new Map([['/p/lib.ts', lib], ['/p/u.ts', `import { type M, isP, m } from './lib.js';\ndeclare const n: M;\nif (isP(m)) { m.predict(); }\nn.predikt();\nexport {};\n`]]);
+  const r = compareChecks(other, { roots: ['/p/u.ts'] });
+  assert.deepEqual(r.falseErrors, []);
+  assert.deepEqual(r.smaltty.map((d) => d.code), [2339]);
+  assert.equal(r.caught, 1);
+});
+
+test('type guards with a cache: a guard added or taken away in one statement checks the others again', () => {
+  const lib = `export interface M { kind: string }\nexport interface P extends M { predict(): number }\nexport function assertP(x: M): asserts x is P {}\nexport declare const m: M;\n`;
+  const files = (body: string) => new Map([['/p/lib.ts', lib], ['/p/u.ts', `import { assertP, m } from './lib.js';\n${body}`]]);
+  const codes = (body: string, cache: ReturnType<typeof checkCache>) => check(files(body), { roots: ['/p/u.ts'], cache }).map((d) => d.code);
+  const cache = checkCache();
+  const unguarded = `const a = 1;\nm.predict();\n`;
+  const guarded = `assertP(m);\nm.predict();\n`;
+  assert.deepEqual(codes(unguarded, cache), [2339], 'no guard: an error, as tsc');
+  assert.deepEqual(codes(guarded, cache), [], 'a guard added before it: the cached error goes');
+  assert.deepEqual(codes(unguarded, cache), [2339], 'the guard taken away: the error is back');
+  for (const body of [unguarded, guarded]) assert.deepEqual(codes(body, cache), codes(body, checkCache()), 'the same as a cold check');
+});
